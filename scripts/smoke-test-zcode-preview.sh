@@ -21,7 +21,6 @@ EOF
 }
 
 PREVIEW_BUNDLE_ID="dev.zcode.app.preview"
-APP_BASENAME="ZCode Preview.app"
 app_install_path="${ZCODE_APP_INSTALL_PATH:-/Applications/ZCode Preview.app}"
 lib_root="${ZCODE_LIB_ROOT:-${HOME}/.local/lib/alphaheng/zcode}"
 do_launch=1
@@ -67,28 +66,44 @@ if [[ -L "${current_link}" ]]; then
 fi
 
 if ((do_launch)); then
-  if pgrep -fq "${APP_BASENAME}/Contents/MacOS" 2>/dev/null; then
+  user_data_dir="${HOME}/Library/Application Support/ZCode Preview"
+  lock_file="${user_data_dir}/SingletonLock"
+  # 以 SingletonLock 指向的 pid 判定存活；pgrep 对首启慢的实例不可靠。
+  preview_pid() {
+    local link_target
+    link_target="$(readlink "${lock_file}" 2>/dev/null || true)"
+    [[ "${link_target}" =~ -([0-9]+)$ ]] && echo "${BASH_REMATCH[1]}"
+  }
+  preview_running() {
+    local pid
+    pid="$(preview_pid)"
+    [[ -n "${pid}" ]] && ps -p "${pid}" -o comm= 2>/dev/null | grep -q "ZCode Preview"
+  }
+  if [[ -e "${lock_file}" ]] && ! preview_running; then
+    echo "note: removing stale single-instance lock (pid $(preview_pid || echo none) gone)"
+    rm -f "${user_data_dir}/SingletonLock" "${user_data_dir}/SingletonSocket" "${user_data_dir}/SingletonCookie"
+  fi
+  if preview_running; then
     echo "SKIP launch: ZCode Preview is already running (static checks passed)"
     exit 0
   fi
   open -n "${app_install_path}"
-  user_data="${HOME}/Library/Application Support/ZCode Preview"
   launched=""
-  for _ in $(seq 1 30); do
-    if pgrep -fq "${APP_BASENAME}/Contents/MacOS" 2>/dev/null && [[ -d "${user_data}" ]]; then
+  for _ in $(seq 1 90); do
+    if preview_running && [[ -d "${user_data_dir}" ]]; then
       launched="1"
       break
     fi
     sleep 1
   done
   if [[ -z "${launched}" ]]; then
-    pkill -fq "${APP_BASENAME}/Contents/MacOS" 2>/dev/null || true
-    fail "app did not start or userData dir missing after 30s"
+    osascript -e 'tell application "ZCode Preview" to quit' >/dev/null 2>&1 || true
+    fail "app did not start or userData dir missing after 90s"
   fi
-  echo "OK: launched and userData present (${user_data})"
-  osascript -e 'tell application "ZCode Preview" to quit' >/dev/null 2>&1 || pkill -fq "${APP_BASENAME}/Contents/MacOS" 2>/dev/null || true
-  sleep 2
-  if pgrep -fq "${APP_BASENAME}/Contents/MacOS" 2>/dev/null; then
+  echo "OK: launched and userData present (${user_data_dir})"
+  osascript -e 'tell application "ZCode Preview" to quit' >/dev/null 2>&1 || true
+  sleep 3
+  if preview_running; then
     echo "warning: app still running after quit request" >&2
   else
     echo "OK: quit cleanly"
