@@ -11,18 +11,20 @@
 
 以下命令从仓库根目录执行：
 
-| 用途             | 命令                                      |
-| ---------------- | ----------------------------------------- |
-| 类型检查         | `pnpm typecheck`                          |
-| Lint             | `pnpm lint` / `pnpm lint:fix`             |
-| 格式检查         | `pnpm fmt:check`                          |
-| 桌面开发         | `pnpm dev:desktop`                        |
-| Web 开发         | `pnpm dev:web`                            |
-| 提交前检查       | `pnpm verify:pre-push`（Lint 与架构检查） |
-| 架构检查         | `pnpm architecture:check --changed`       |
-| 模块阅读包       | `pnpm architecture:context <module-id>`   |
-| 未使用依赖与导出 | `pnpm knip`                               |
-| 导出引用查询     | `pnpm dep:refs --list-exports <file>`     |
+| 用途             | 命令                                                                    |
+| ---------------- | ----------------------------------------------------------------------- |
+| 类型检查         | `pnpm typecheck`                                                        |
+| Lint             | `pnpm lint` / `pnpm lint:fix`                                           |
+| 格式检查         | `pnpm fmt:check`                                                        |
+| 桌面开发         | `pnpm dev:desktop`                                                      |
+| Web 开发         | `pnpm dev:web`                                                          |
+| 提交前检查       | `pnpm verify:pre-push`（Lint 与架构检查）                               |
+| 架构检查         | `pnpm architecture:check --changed`                                     |
+| 模块阅读包       | `pnpm architecture:context <module-id>`                                 |
+| 未使用依赖与导出 | `pnpm knip`                                                             |
+| 导出引用查询     | `pnpm dep:refs --list-exports <file>`                                   |
+| 个人快照构建     | `scripts/build-and-link-zcode.sh`（见 `specs/custom-preview-build.md`） |
+| Preview 冒烟     | `scripts/smoke-test-zcode-preview.sh`                                   |
 
 测试入口以目标包当前的 `package.json` 和实际测试文件为准，不假定存在统一的单测或 E2E 命令。
 
