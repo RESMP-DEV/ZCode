@@ -1622,6 +1622,7 @@ const enUS: Record<string, string> = {
   "workspaceSidebar.projectsSection": "Projects",
   "workspaceSidebar.newConversation": "New task",
   "workspaceSidebar.attentionDigest": "Summarize what needs attention",
+  "workspaceSidebar.attentionIndicator": "Tasks waiting for your action",
   "workspaceSidebar.reorderSection": "Move {section} section",
   "workspaceSidebar.addProject": "Add project",
   "workspaceSidebar.noConversations": "No tasks yet",

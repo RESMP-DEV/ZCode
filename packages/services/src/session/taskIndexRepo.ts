@@ -982,6 +982,9 @@ export class TaskIndexRepo {
   async listAttentionCandidates(params: { limit?: number }): Promise<ZCodeTaskMeta[]> {
     await this.ensureReady();
     const limit = Math.max(1, Math.floor(params.limit ?? 12));
+    // 优先级排序必须进 SQL：只按 recency 截断的 LIMIT 窗口会让 200 条更新的
+    // 低优先级行（未读/运行中）把更旧的 pendingInteraction 行挤出候选集，
+    // 与 JS 侧 rank 的优先级语义冲突。LIMIT 200 仍是安全上限。
     const rows = this.getDatabase()
       .prepare(
         `SELECT
@@ -1017,7 +1020,16 @@ export class TaskIndexRepo {
             OR task_status = 'running'
             OR meta_json LIKE '%"pendingInteraction"%'
           )
-        ORDER BY updated_at DESC, created_at DESC, task_id DESC
+        ORDER BY
+          CASE
+            WHEN meta_json LIKE '%"pendingInteraction"%' THEN 3
+            WHEN task_status = 'error' THEN 2
+            WHEN unread_at IS NOT NULL THEN 1
+            ELSE 0
+          END DESC,
+          updated_at DESC,
+          created_at DESC,
+          task_id DESC
         LIMIT 200`,
       )
       .all() as unknown as TaskIndexRow[];

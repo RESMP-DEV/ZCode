@@ -91,7 +91,11 @@ export function buildWorkspaceTaskListDisplayGroups(params: {
       );
     // 与 hasUnread 分离的第二语义：有等用户处理的阻塞（permission/input），
     // 读持久化 meta + 实时 sidecar 任一来源；蓝点表示「有没看过的结果」。
-    const hasPendingAction = items.some((task) => task.pendingInteraction != null);
+    // 缓存的 hasPendingAction 在分页裁剪前的完整结果上固化，
+    // 覆盖可见窗口之外（「任务」分区头与项目行共用同一 rollup）。
+    const hasPendingAction =
+      items.some((task) => task.pendingInteraction != null) ||
+      (displayResult?.hasPendingAction ?? false);
     const liveWorkflowCount = items.reduce(
       (count, task) =>
         count + countLiveWorkflowRuns(getTaskListRowActivity(task)?.workflowActivity),
