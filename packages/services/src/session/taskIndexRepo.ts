@@ -1042,6 +1042,210 @@ export class TaskIndexRepo {
       .slice(0, limit);
   }
 
+  /**
+   * Session Sweep 的守卫谓词（plan 与 execute 复用同一份）：
+   * 「不在行动中」= 未删除、未钉住、无未读、（已归档 或 终态）、无 cron/off-peak
+   * 身份、最后更新早于 cutoff。pendingInteraction 在 JS 侧按 meta 复核（meta_json 列）。
+   */
+  private static readonly SESSION_SWEEP_GUARD_SQL = [
+    "deleted = 0",
+    "pinned = 0",
+    "unread_at IS NULL",
+    "(archived = 1 OR task_status IN ('completed', 'error'))",
+    "cron_automation_id IS NULL",
+    "off_peak_task_id IS NULL",
+    "updated_at < ?",
+  ];
+
+  /** 钉住侧候选：同款守卫但 pinned=1 —— 终态/归档、无未读无阻塞、过期的钉住会话。 */
+  private static readonly SESSION_SWEEP_PINNED_GUARD_SQL = [
+    "deleted = 0",
+    "pinned = 1",
+    "unread_at IS NULL",
+    "(archived = 1 OR task_status IN ('completed', 'error'))",
+    "cron_automation_id IS NULL",
+    "off_peak_task_id IS NULL",
+    "updated_at < ?",
+  ];
+
+  private sessionSweepGuardHolds(row: TaskIndexRow, cutoff: number): boolean {
+    if (row.deleted === 1 || row.pinned === 1) return false;
+    if (row.unread_at != null) return false;
+    if (row.archived !== 1 && row.task_status !== "completed" && row.task_status !== "error") {
+      return false;
+    }
+    if (row.cron_automation_id != null || row.off_peak_task_id != null) return false;
+    if (row.updated_at >= cutoff) return false;
+    // meta 仍带阻塞交互 = 还有等用户的动作，一律不删。
+    return rowToMeta(row).pendingInteraction == null;
+  }
+
+  /** 跨全部 workspace 的可清理候选（只读）；agent 只拿这份清单做相关性判断。 */
+  async listSessionSweepCandidates(params: {
+    minAgeDays?: number;
+    limit?: number;
+  }): Promise<Array<ZCodeTaskMeta & { archived: boolean; preview: string }>> {
+    await this.ensureReady();
+    const minAgeDays = Math.max(1, Math.floor(params.minAgeDays ?? 14));
+    const limit = Math.max(1, Math.floor(params.limit ?? 60));
+    const cutoff = Date.now() - minAgeDays * 24 * 60 * 60 * 1000;
+    const rows = this.getDatabase()
+      .prepare(
+        `SELECT
+          workspace_key, workspace_path, workspace_identity, task_id, title, task_status,
+          provider, mode, model, migration_source, forked_from_task_id, cron_automation_id,
+          off_peak_task_id, created_at, updated_at, unread_at, last_unread_at, pinned,
+          archived, deleted, title_overridden, searchable_text, meta_json
+        FROM tasks
+        WHERE ${TaskIndexRepo.SESSION_SWEEP_GUARD_SQL.join(" AND ")}
+        ORDER BY updated_at ASC, created_at ASC, task_id ASC
+        LIMIT ?`,
+      )
+      .all(cutoff, limit * 2) as unknown as TaskIndexRow[];
+    return rows
+      .filter((row) => rowToMeta(row).pendingInteraction == null)
+      .slice(0, limit)
+      .map((row) => {
+        const meta = rowToMeta(row);
+        return {
+          ...meta,
+          archived: row.archived === 1,
+          preview: (row.searchable_text ?? "").slice(0, 240),
+        };
+      });
+  }
+
+  /** 钉住侧候选（只读）：满足除 pinned 外全部守卫的钉住会话，供 agent 判断是否解除钉住。 */
+  async listSessionSweepPinnedCandidates(params: {
+    minAgeDays?: number;
+    limit?: number;
+  }): Promise<Array<ZCodeTaskMeta & { archived: boolean; preview: string }>> {
+    await this.ensureReady();
+    const minAgeDays = Math.max(1, Math.floor(params.minAgeDays ?? 14));
+    const limit = Math.max(1, Math.floor(params.limit ?? 30));
+    const cutoff = Date.now() - minAgeDays * 24 * 60 * 60 * 1000;
+    const rows = this.getDatabase()
+      .prepare(
+        `SELECT
+          workspace_key, workspace_path, workspace_identity, task_id, title, task_status,
+          provider, mode, model, migration_source, forked_from_task_id, cron_automation_id,
+          off_peak_task_id, created_at, updated_at, unread_at, last_unread_at, pinned,
+          archived, deleted, title_overridden, searchable_text, meta_json
+        FROM tasks
+        WHERE ${TaskIndexRepo.SESSION_SWEEP_PINNED_GUARD_SQL.join(" AND ")}
+        ORDER BY updated_at ASC, created_at ASC, task_id ASC
+        LIMIT ?`,
+      )
+      .all(cutoff, limit) as unknown as TaskIndexRow[];
+    return rows
+      .filter((row) => rowToMeta(row).pendingInteraction == null)
+      .map((row) => {
+        const meta = rowToMeta(row);
+        return {
+          ...meta,
+          archived: row.archived === 1,
+          preview: (row.searchable_text ?? "").slice(0, 240),
+        };
+      });
+  }
+
+  /**
+   * 设置/解除钉住（sweep 面）。pin/unpin 是纯 membership 元数据，不做守卫矩阵；
+   * 删除侧安全完全由 sweepDeleteTasks 的事务内守卫承担（解除钉住只是让它重新可被
+   * 后续清理提名）。不存在/已删除的行 skip。
+   */
+  async sweepSetPinned(params: { taskIds: string[]; pinned: boolean }): Promise<{
+    updated: Array<{ taskId: string; pinned: boolean; meta: ZCodeTaskMeta }>;
+    skipped: Array<{ taskId: string; reason: string }>;
+  }> {
+    await this.ensureReady();
+    const updated: Array<{ taskId: string; pinned: boolean; meta: ZCodeTaskMeta }> = [];
+    const skipped: Array<{ taskId: string; reason: string }> = [];
+    const seen = new Set<string>();
+    for (const taskId of params.taskIds) {
+      if (seen.has(taskId)) {
+        continue;
+      }
+      seen.add(taskId);
+      const row = this.getTaskRowById(taskId);
+      if (!row || row.deleted === 1) {
+        skipped.push({ taskId, reason: "not_found_or_already_deleted" });
+        continue;
+      }
+      if ((row.pinned === 1) === params.pinned) {
+        skipped.push({
+          taskId,
+          reason: params.pinned ? "already_pinned" : "already_unpinned",
+        });
+        continue;
+      }
+      // identity 以行主键投影为准（同 rowToMeta 语义），避免残留 identity 列把
+      // 更新写到另一个 workspace_key 桶。
+      const workspaceIdentity = resolveTaskIndexRowWorkspaceIdentity(row);
+      const meta = await this.updateTaskState({
+        workspacePath: row.workspace_path,
+        ...(workspaceIdentity ? { workspaceIdentity } : {}),
+        taskId,
+        patch: { pinned: params.pinned },
+      });
+      updated.push({ taskId, pinned: params.pinned, meta });
+    }
+    return { updated, skipped };
+  }
+
+  /**
+   * 事务内逐项守卫复核后 tombstone（deleted=1 + 去分组引用）。
+   * 返回成功删除的 meta 与被跳过项及原因；不做任何文件操作（备份由 SessionSweepService 负责）。
+   */
+  async sweepDeleteTasks(params: {
+    taskIds: string[];
+    minAgeDays?: number;
+  }): Promise<{ deleted: ZCodeTaskMeta[]; skipped: Array<{ taskId: string; reason: string }> }> {
+    await this.ensureReady();
+    const minAgeDays = Math.max(1, Math.floor(params.minAgeDays ?? 14));
+    const cutoff = Date.now() - minAgeDays * 24 * 60 * 60 * 1000;
+    const deleted: ZCodeTaskMeta[] = [];
+    const skipped: Array<{ taskId: string; reason: string }> = [];
+    const seen = new Set<string>();
+    this.getDatabase().exec("BEGIN IMMEDIATE");
+    try {
+      for (const taskId of params.taskIds) {
+        if (seen.has(taskId)) {
+          continue;
+        }
+        seen.add(taskId);
+        const row = this.getTaskRowById(taskId);
+        if (!row || row.deleted === 1) {
+          skipped.push({ taskId, reason: "not_found_or_already_deleted" });
+          continue;
+        }
+        if (!this.sessionSweepGuardHolds(row, cutoff)) {
+          skipped.push({ taskId, reason: "guard_recheck_failed" });
+          continue;
+        }
+        const meta = this.writeRecord({
+          meta: rowToMeta(row),
+          pinned: false,
+          archived: row.archived === 1,
+          deleted: true,
+          titleOverridden: row.title_overridden === 1,
+        });
+        this.deleteTaskGroupingReferencesReady(row.workspace_key, row.task_id);
+        deleted.push(meta);
+      }
+      this.getDatabase().exec("COMMIT");
+    } catch (error) {
+      this.getDatabase().exec("ROLLBACK");
+      throw error;
+    }
+    return { deleted, skipped };
+  }
+
+  private getTaskRowById(taskId: string): TaskIndexRow | undefined {
+    return this.getDatabase()
+      .prepare(`SELECT * FROM tasks WHERE task_id = ? LIMIT 1`)
+      .get(taskId) as unknown as TaskIndexRow | undefined;
+  }
 
   private hasGroupedWorkspaceBootstrapRunSync(): boolean {
     const row = this.getDatabase()

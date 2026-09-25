@@ -63,6 +63,9 @@ import {
   zcodeAutomationUpdateParamsSchema,
   zcodeOffPeakCreateParamsSchema,
   zcodeOffPeakListParamsSchema,
+  zcodeSessionSweepExecuteParamsSchema,
+  zcodeSessionSweepSetPinnedParamsSchema,
+  zcodeSessionSweepPlanParamsSchema,
   OFF_PEAK_PROVIDER_IDS,
   zcodeComputerUseOperationEventSchema,
   zcodeProviderRuntimeHeadersCancelledSchema,
@@ -295,6 +298,11 @@ import { createBackgroundSessionEventCoalescer } from "#src/zcode-agent/zcodeSes
 import { AutomationService } from "#src/session/automationService.js";
 import { AutomationRepo } from "#src/session/automationRepo.js";
 import { TaskIndexRepo } from "#src/session/taskIndexRepo.js";
+import {
+  executeSessionSweep,
+  planSessionSweep,
+  setPinnedSessionSweep,
+} from "#src/session/sessionSweepService.js";
 import { ZCodeAgentMcpStatusModeUnsupportedError } from "#src/zcode-agent/zcodeAgentErrors.js";
 import { ZCodeAgentProcessManager } from "./zcodeAgentProcessManager.js";
 import type { ZCodeAgentProcessManagerOptions } from "./zcodeAgentProcessManager.js";
@@ -1079,6 +1087,9 @@ export function createZCodeAgentService(
   const automationRepo = new AutomationRepo();
   const automationService = new AutomationService(automationRepo);
   const automationTaskIndexRepo = new TaskIndexRepo();
+  // Session Sweep 用独立 repo 实例（同 automation 模式）：协议 handler 直接落
+  // tasks-index，事件广播经 sessionSweepService 的 notifier 桥补齐。
+  const sessionSweepTaskIndexRepo = new TaskIndexRepo();
   const pluginProcessManager = new ZCodeAgentProcessManager({
     commandResolver: options?.commandResolver,
     presentationSurface: options?.presentationSurface,
@@ -2691,6 +2702,83 @@ export function createZCodeAgentService(
               });
             } catch (error) {
               await respondOffPeakInternalError(client, request, workspace, error);
+            }
+          })();
+          return;
+        }
+
+        if (request.method === zcodeProtocolMethods.sessionSweepPlan) {
+          const parsed = zcodeSessionSweepPlanParamsSchema.safeParse(request.params ?? {});
+          if (!parsed.success) {
+            void client.respondError(request.id, {
+              code: -32602,
+              message: "Invalid session sweep plan params",
+              data: parsed.error.flatten(),
+            });
+            return;
+          }
+          void (async () => {
+            try {
+              // plan 是全局只读查询；守卫（不在行动中）在 SQL 谓词内强制。
+              const result = await planSessionSweep(sessionSweepTaskIndexRepo, parsed.data);
+              await client.respond(request.id, result);
+            } catch (error) {
+              await client.respondError(request.id, {
+                code: -32603,
+                message: error instanceof Error ? error.message : String(error),
+              });
+            }
+          })();
+          return;
+        }
+
+        if (request.method === zcodeProtocolMethods.sessionSweepExecute) {
+          const parsed = zcodeSessionSweepExecuteParamsSchema.safeParse(request.params ?? {});
+          if (!parsed.success) {
+            void client.respondError(request.id, {
+              code: -32602,
+              message: "Invalid session sweep execute params",
+              data: parsed.error.flatten(),
+            });
+            return;
+          }
+          void (async () => {
+            try {
+              // execute 在事务内复核守卫并执行「备份 → tombstone」；agent 提交的
+              // 任何不合规 taskId 都会被 skip 而不是删除。
+              const result = await executeSessionSweep(sessionSweepTaskIndexRepo, parsed.data);
+              await client.respond(request.id, result);
+            } catch (error) {
+              await client.respondError(request.id, {
+                code: -32603,
+                message: error instanceof Error ? error.message : String(error),
+              });
+            }
+          })();
+          return;
+        }
+
+        if (request.method === zcodeProtocolMethods.sessionSweepSetPinned) {
+          const parsed = zcodeSessionSweepSetPinnedParamsSchema.safeParse(request.params ?? {});
+          if (!parsed.success) {
+            void client.respondError(request.id, {
+              code: -32602,
+              message: "Invalid session sweep setPinned params",
+              data: parsed.error.flatten(),
+            });
+            return;
+          }
+          void (async () => {
+            try {
+              // pin/unpin 是纯 membership 元数据；解除钉住只影响下一轮 plan 的
+              // 候选资格，删除安全仍由 execute 的事务守卫承担。
+              const result = await setPinnedSessionSweep(sessionSweepTaskIndexRepo, parsed.data);
+              await client.respond(request.id, result);
+            } catch (error) {
+              await client.respondError(request.id, {
+                code: -32603,
+                message: error instanceof Error ? error.message : String(error),
+              });
             }
           })();
           return;
