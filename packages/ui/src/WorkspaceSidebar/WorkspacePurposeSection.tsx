@@ -2,6 +2,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { ChevronDown, ChevronRight, GripVertical } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import {
   Collapsible,
   CollapsibleContent,
@@ -39,6 +40,7 @@ export function WorkspacePurposeSection({
     transition,
     isDragging,
   } = useSortable({ id: sortableId });
+  const { intl } = useZCodeIntl();
   const style: CSSProperties = {
     transform: transform
       ? CSS.Transform.toString({ ...transform, scaleX: 1, scaleY: 1 })
@@ -69,8 +71,10 @@ export function WorkspacePurposeSection({
               {!open && attentionIndicator ? (
                 // 第二指示语义：蓝点 = 有没看过的结果；琥珀点 = 有等用户处理的阻塞。
                 // 分区展开时任务行自身角标可见，点只在收起态出现（与项目行一致）。
+                // 点承载真实状态而非装饰，读屏器必须能读到，不能 aria-hidden。
                 <span
-                  aria-hidden="true"
+                  role="img"
+                  aria-label={intl.formatMessage({ id: "workspaceSidebar.attentionIndicator" })}
                   data-purpose-section-attention-indicator="true"
                   className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500 dark:bg-amber-400"
                 />

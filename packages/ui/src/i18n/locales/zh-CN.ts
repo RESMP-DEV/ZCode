@@ -1506,6 +1506,7 @@ const zhCN: Record<string, string> = {
   "workspaceSidebar.projectsSection": "项目",
   "workspaceSidebar.newConversation": "新建任务",
   "workspaceSidebar.attentionDigest": "汇总待办事项",
+  "workspaceSidebar.attentionIndicator": "有任务等待处理",
   "workspaceSidebar.reorderSection": "移动{section}分区",
   "workspaceSidebar.addProject": "添加项目",
   "workspaceSidebar.noConversations": "还没有任务",
