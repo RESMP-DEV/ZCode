@@ -229,6 +229,9 @@ function buildBaselineMetaFromSummary(
     provider: ZCODE_AGENT_PROVIDER,
     ...(summary.parentSessionId ? { forkedFromTaskId: summary.parentSessionId } : {}),
     ...(status ? { status } : {}),
+    // sessions-index 基线补齐时同步落阻塞交互摘要：app 重启/冷恢复后侧栏才能
+    // 继续显示 Permission/Input 角标，而不是只活在实时订阅里。
+    ...(summary.pendingInteraction ? { pendingInteraction: summary.pendingInteraction } : {}),
   };
 }
 
@@ -586,9 +589,11 @@ export function createZCodeTaskIndexSyncer(
         taskId: target.sessionId,
         // error 的 lastError 详情不在 sessions-index 摘要里，留给随后的回源 snapshot
         // 写权威值（patch 不带 lastError 键 = 保留现值）；completed 沿旧语义清空。
+        // 终态必然不再有等用户的阻塞交互，这里显式清掉持久化摘要，防止归档守卫
+        // 被残留的 pendingInteraction 永久挡住。
         patch: failed
           ? { status: "error", updatedAt }
-          : { status: "completed", lastError: undefined, updatedAt },
+          : { status: "completed", lastError: undefined, pendingInteraction: undefined, updatedAt },
       })
       .then((meta) => {
         if (meta) {
@@ -696,6 +701,44 @@ export function createZCodeTaskIndexSyncer(
     if (title && (previous === undefined || previous.title !== next.title)) {
       applyTitleChange(target, title);
     }
+    // 阻塞交互摘要 diff：sessions-index 是 conflated 最新态，队首 pendingInteraction
+    // 变化（出现、解决、换代）都要落到 tasks-index，否则会话未打开/app 重启后
+    // 侧栏没有任何「还在等用户处理」的痕迹——这正是「点完通知就丢了」的根因。
+    const nextPending = next.pendingInteraction ?? null;
+    const previousPending = previous?.pendingInteraction ?? null;
+    if (
+      nextPending?.interactionId !== previousPending?.interactionId ||
+      nextPending?.kind !== previousPending?.kind
+    ) {
+      applyPendingInteractionChange(target, next.pendingInteraction ?? undefined);
+    }
+  }
+
+  /** 阻塞交互摘要变化 → sqlite patch + 广播；显式 undefined 表示清空。 */
+  function applyPendingInteractionChange(
+    target: ZCodeAgentSessionTarget,
+    pending: ZCodeTaskMeta["pendingInteraction"],
+  ): void {
+    const updatedAt = Date.now();
+    void taskIndexRepo
+      .applyAgentPatch({
+        workspacePath: target.workspacePath,
+        workspaceIdentity: target.workspaceIdentity,
+        taskId: target.sessionId,
+        patch: { pendingInteraction: pending ?? undefined, updatedAt },
+      })
+      .then((meta) => {
+        if (meta) {
+          emitWorkspaceTaskListChanged(broadcastTargetFrom(target), meta, "task_meta_changed");
+        }
+      })
+      .catch((error) => {
+        logger.warn(
+          undefined,
+          `同步阻塞交互摘要到 task index 失败 taskId=${target.sessionId}`,
+          error,
+        );
+      });
   }
 
   async function seedMissingRowsFromInitialSnapshot(
@@ -1863,6 +1906,17 @@ function buildMetaFromSnapshot(
     meta.target = snapshot.projection.target
       ? fromZCodeGoal(snapshot.projection.target)
       : snapshot.projection.target;
+  }
+  // legacy snapshot 的阻塞交互只有 pendingPermissions（userInput 摘要仅存在于
+  // sessions-index）；这里把队首 permission 映射成持久化摘要。键缺席语义由
+  // syncTaskMeta 的保留分支处理，不会把 sessions-index 写入的 userInput 冲掉。
+  const pendingPermission = snapshot.projection.pendingPermissions?.[0];
+  if (pendingPermission) {
+    meta.pendingInteraction = {
+      interactionId: pendingPermission.requestId,
+      kind: "permission",
+      toolName: pendingPermission.toolName,
+    };
   }
   return meta;
 }

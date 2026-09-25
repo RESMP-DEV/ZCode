@@ -276,6 +276,12 @@ export interface AppSettings {
   taskAutoArchiveEnabled?: boolean;
   /** 自动归档阈值；当任务最后更新时间早于该天数时允许被归档 */
   taskAutoArchiveOlderThanDays?: number;
+  /** 72h 自动归档默认值是否已执行过一次性迁移；只用于设置迁移，不参与业务判断。 */
+  taskAutoArchiveDefaultsInitialized?: boolean;
+  /** 侧栏项目自动导入总开关；开启时启动恢复后自动把扫描到的 git 项目加入侧栏。 */
+  workspaceAutoImportEnabled?: boolean;
+  /** 侧栏项目自动导入的扫描根目录列表；为空时使用 home 目录（深度 2，仅收 .git 目录）。 */
+  workspaceAutoImportRoots?: string[];
   /** Windows 桌面端关闭窗口时隐藏到托盘；其它平台忽略 */
   closeToTrayOnWindows?: boolean;
   /** 存在执行中的闲时任务时阻止系统闲置休眠（手动开关，防不了合盖）。 */

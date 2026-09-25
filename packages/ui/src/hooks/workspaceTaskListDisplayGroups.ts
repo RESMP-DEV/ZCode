@@ -25,6 +25,8 @@ export interface WorkspaceTaskListGroup {
   total: number;
   hasMore: boolean;
   hasUnread: boolean;
+  /** 组内存在持久化阻塞交互（等用户处理）；项目行收起时显示琥珀色点。 */
+  hasPendingAction: boolean;
   /** 组内在跑的工作流 run 数：项目收起时组头旁的脉冲灯。 */
   liveWorkflowCount: number;
 }
@@ -87,6 +89,9 @@ export function buildWorkspaceTaskListDisplayGroups(params: {
       (displayResult?.unreadTaskKeys ?? []).some(
         (taskKey) => params.taskUnreadOverlayByEntityKey[taskKey] !== null,
       );
+    // 与 hasUnread 分离的第二语义：有等用户处理的阻塞（permission/input），
+    // 读持久化 meta + 实时 sidecar 任一来源；蓝点表示「有没看过的结果」。
+    const hasPendingAction = items.some((task) => task.pendingInteraction != null);
     const liveWorkflowCount = items.reduce(
       (count, task) =>
         count + countLiveWorkflowRuns(getTaskListRowActivity(task)?.workflowActivity),
@@ -99,6 +104,7 @@ export function buildWorkspaceTaskListDisplayGroups(params: {
       total,
       hasMore: Math.max(total, items.length) > items.length,
       hasUnread,
+      hasPendingAction,
       liveWorkflowCount,
     };
     if (
@@ -108,6 +114,7 @@ export function buildWorkspaceTaskListDisplayGroups(params: {
       previousGroup.total === nextGroup.total &&
       previousGroup.hasMore === nextGroup.hasMore &&
       previousGroup.hasUnread === nextGroup.hasUnread &&
+      previousGroup.hasPendingAction === nextGroup.hasPendingAction &&
       previousGroup.liveWorkflowCount === nextGroup.liveWorkflowCount &&
       areTaskListItemsEquivalent(previousGroup.items, nextGroup.items)
     ) {

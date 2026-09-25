@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import type { IServiceAccessor } from "@zcode/services";
 import { logger } from "@/logger.js";
 import type { TabStoreState } from "@/store/tabStore.js";
@@ -58,10 +58,44 @@ export function useConversationWorkspaceActions({
     }
   }, [handleResolveConversationWorkspace, handleSelectConversationWorkspace]);
 
+  const attentionDigestInFlightRef = useRef(false);
+  const handleCreateAttentionDigest = useCallback(
+    async (locale: string) => {
+      // 摘要派发一次点击就是一个 agent 任务；连点会在 conversation workspace
+      // 里堆出重复任务，这里用本地在途守卫挡住。
+      if (attentionDigestInFlightRef.current) {
+        return;
+      }
+      attentionDigestInFlightRef.current = true;
+      try {
+        const path = await handleResolveConversationWorkspace();
+        const result = await services.zcodeTaskService.createAttentionDigestTask({ locale });
+        handleSelectConversationWorkspace(path);
+        // 与“对话 +”同款：显式目标不被 pane/group 的项目绑定覆盖。
+        useWorkbenchGroupStore.getState().deactivateActiveGroup();
+        usePaneLayoutStore.getState().resetToPrimaryPane();
+        useZCodeSessionStore.getState().setActiveTaskId(path, result.taskId);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error("[Root] create attention digest task failed", { error });
+        setWorkspaceActionError(message);
+      } finally {
+        attentionDigestInFlightRef.current = false;
+      }
+    },
+    [
+      handleResolveConversationWorkspace,
+      handleSelectConversationWorkspace,
+      services.zcodeTaskService,
+      setWorkspaceActionError,
+    ],
+  );
+
   return {
     handleSelectConversationWorkspace,
     handleResolveConversationWorkspace,
     handleEnsureConversationWorkspace,
     handleCreateConversationTask,
+    handleCreateAttentionDigest,
   };
 }

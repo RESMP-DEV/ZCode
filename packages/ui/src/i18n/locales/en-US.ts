@@ -1621,6 +1621,7 @@ const enUS: Record<string, string> = {
   "workspaceSidebar.conversationsSection": "Tasks",
   "workspaceSidebar.projectsSection": "Projects",
   "workspaceSidebar.newConversation": "New task",
+  "workspaceSidebar.attentionDigest": "Summarize what needs attention",
   "workspaceSidebar.reorderSection": "Move {section} section",
   "workspaceSidebar.addProject": "Add project",
   "workspaceSidebar.noConversations": "No tasks yet",
@@ -2268,6 +2269,17 @@ const enUS: Record<string, string> = {
   "settings.taskAutoArchiveDays.option.7": "Archive after 7 days",
   "settings.taskAutoArchiveDays.option.14": "Archive after 14 days",
   "settings.taskAutoArchiveDays.option.30": "Archive after 30 days",
+  "settings.workspaceAutoImport": "Auto-import projects to sidebar",
+  "settings.workspaceAutoImportDescription":
+    "After startup, scan the roots below (2 levels deep, git repositories only) and add missing projects to the sidebar without activating them.",
+  "settings.workspaceAutoImportRoots": "Scan roots",
+  "settings.workspaceAutoImportRootsDescription":
+    "One path per line. Leave empty to scan your home directory.",
+  "settings.workspaceAutoImportRootsPlaceholder": "Empty = home directory",
+  "settings.workspaceAutoImportScanNow": "Scan now",
+  "settings.workspaceAutoImportScanResult":
+    "Scan finished: {imported} added ({scanned} repositories found).",
+  "settings.workspaceAutoImportScanFailed": "Scan failed: {error}",
   "settings.dataBaseDir": "Data storage path",
   "settings.dataBaseDirDescription":
     "Root directory for app data (defaults to user home directory). Existing data will be copied to the new location. The .zcode/v2 suffix cannot be changed.",

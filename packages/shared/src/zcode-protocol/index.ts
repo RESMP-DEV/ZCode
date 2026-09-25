@@ -3560,6 +3560,85 @@ export const zcodeOffPeakListResultSchema = z
   .strict();
 export type ZCodeOffPeakListProtocolResult = z.infer<typeof zcodeOffPeakListResultSchema>;
 
+// ---- Session Sweep（agent 驱动的会话清理）协议 ----
+// 与 automation/offPeak 同款 requestClient 模式：CLI 工具经协议触达 host，
+// host 在事务内强制守卫并执行「备份 → tombstone」。全局操作，不携带 workspace。
+export const zcodeSessionSweepPlanParamsSchema = z
+  .object({
+    minAgeDays: z.number().int().positive().max(365).optional(),
+    limit: z.number().int().positive().max(200).optional(),
+  })
+  .strict();
+export type ZCodeSessionSweepPlanProtocolParams = z.infer<typeof zcodeSessionSweepPlanParamsSchema>;
+export const zcodeSessionSweepCandidateSchema = z
+  .object({
+    taskId: nonEmptyString,
+    workspacePath: nonEmptyString,
+    workspaceIdentity: z.string().optional(),
+    title: z.string(),
+    status: z.enum(["completed", "error"]).optional(),
+    archived: z.boolean(),
+    createdAt: z.number().int().nonnegative(),
+    updatedAt: z.number().int().nonnegative(),
+    preview: z.string(),
+  })
+  .strict();
+export type ZCodeSessionSweepCandidate = z.infer<typeof zcodeSessionSweepCandidateSchema>;
+export const zcodeSessionSweepPlanResultSchema = z
+  .object({
+    candidates: z.array(zcodeSessionSweepCandidateSchema),
+    /** 钉住但已终态/归档且过期的会话：供 agent 判断是否解除钉住（解除后才可被后续清理）。 */
+    pinnedCandidates: z.array(zcodeSessionSweepCandidateSchema),
+    backlogDir: nonEmptyString,
+    generatedAt: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ZCodeSessionSweepPlanProtocolResult = z.infer<typeof zcodeSessionSweepPlanResultSchema>;
+export const zcodeSessionSweepExecuteParamsSchema = z
+  .object({
+    taskIds: z.array(nonEmptyString).min(1).max(200),
+    minAgeDays: z.number().int().positive().max(365).optional(),
+  })
+  .strict();
+export type ZCodeSessionSweepExecuteProtocolParams = z.infer<
+  typeof zcodeSessionSweepExecuteParamsSchema
+>;
+export const zcodeSessionSweepExecuteResultSchema = z
+  .object({
+    deleted: z.array(
+      z
+        .object({
+          taskId: nonEmptyString,
+          backupPath: z.string(),
+          snapshotMoved: z.boolean(),
+        })
+        .strict(),
+    ),
+    skipped: z.array(z.object({ taskId: nonEmptyString, reason: z.string() }).strict()),
+  })
+  .strict();
+export type ZCodeSessionSweepExecuteProtocolResult = z.infer<
+  typeof zcodeSessionSweepExecuteResultSchema
+>;
+export const zcodeSessionSweepSetPinnedParamsSchema = z
+  .object({
+    taskIds: z.array(nonEmptyString).min(1).max(200),
+    pinned: z.boolean(),
+  })
+  .strict();
+export type ZCodeSessionSweepSetPinnedProtocolParams = z.infer<
+  typeof zcodeSessionSweepSetPinnedParamsSchema
+>;
+export const zcodeSessionSweepSetPinnedResultSchema = z
+  .object({
+    updated: z.array(z.object({ taskId: nonEmptyString, pinned: z.boolean() }).strict()),
+    skipped: z.array(z.object({ taskId: nonEmptyString, reason: z.string() }).strict()),
+  })
+  .strict();
+export type ZCodeSessionSweepSetPinnedProtocolResult = z.infer<
+  typeof zcodeSessionSweepSetPinnedResultSchema
+>;
+
 export const zcodeProtocolMethods = {
   runtimeCapabilities: "runtime/capabilities",
   computerUseOperationEvent: "computer-use/operation-event",
@@ -3649,6 +3728,9 @@ export const zcodeProtocolMethods = {
   // Off-Peak 会话内创建：与 automation 兄弟并列的独立方法族。
   offPeakCreate: "offPeak/create",
   offPeakList: "offPeak/list",
+  sessionSweepPlan: "sessionSweep/plan",
+  sessionSweepExecute: "sessionSweep/execute",
+  sessionSweepSetPinned: "sessionSweep/setPinned",
   // @deprecated：host 消费已清零（zcodeAgentService 改走 v4/usage/stats）。
   // 仅剩 CLI server 的 wire 兼容 case；随旧词整体删除时一并移除。
   usageStats: "usage/stats",

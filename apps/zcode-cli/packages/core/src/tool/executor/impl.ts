@@ -51,6 +51,10 @@ export class ToolExecutorImpl implements ToolExecutor {
       artifactStore: options.artifactStore,
       automationPort: options.automationPort,
       offPeakPort: options.offPeakPort,
+      // 第四跳：executor options → 内部执行上下文。此文件按白名单逐字段拷贝端口，
+      // 缺席即断链（注册用 runtime deps 有端口、handler 读的上下文没有，表现为
+      // "host does not support session sweeping" 的假能力缺失）。
+      sessionSweepPort: options.sessionSweepPort,
       sessionStore: options.sessionStore,
       sessionModePort: options.sessionModePort,
       workflowPort: options.workflowPort,
