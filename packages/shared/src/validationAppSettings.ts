@@ -479,8 +479,14 @@ const appSettingsObjectSchema = z.object({
   // 输入框电脑操作入口改为默认不展示，设置项保留、默认关闭。
   // default 只对缺省字段生效，显式存过 false 的用户仍保持展示。
   computerUseComposerEntryHidden: z.boolean().default(true),
+  // 默认开启 72h 自动归档；旧存量用户经 migrateTaskAutoArchiveDefaults 一次性迁移，
+  // 已显式保存过任一键的选择（包括显式关闭）不会被翻转。
   taskAutoArchiveEnabled: z.boolean().default(false),
   taskAutoArchiveOlderThanDays: z.number().int().positive().max(365).default(7),
+  taskAutoArchiveDefaultsInitialized: z.boolean().default(true),
+  // 侧栏项目自动导入：默认开启；roots 为空时扫描 home 目录（深度 2，仅收 .git 目录）。
+  workspaceAutoImportEnabled: z.boolean().default(true),
+  workspaceAutoImportRoots: z.array(z.string()).default([]),
   closeToTrayOnWindows: z.boolean().default(true),
   closeToTrayOnWindowsMigrationInitialized: z.boolean().default(true),
   // default(false)：新装与存量用户首次启动都视为未归位，由 main 进程按平台决定是否迁移。
@@ -529,11 +535,13 @@ export const appSettingsSchema = z.preprocess(
   (value) =>
     sanitizeEmbeddedBrowserViewportPreference(
       sanitizeDesktopWindowSize(
-        migrateMessageStreamShowReasoningDefault(
-          migrateCloseToTrayOnWindowsDefault(
-            migrateLegacyLocalePreference(
-              sanitizeZCodeEndpointOrigin(
-                migrateLegacyWorkspaceSession(migrateLegacyBuiltinAgentCliProviders(value)),
+        migrateTaskAutoArchiveDefaults(
+          migrateMessageStreamShowReasoningDefault(
+            migrateCloseToTrayOnWindowsDefault(
+              migrateLegacyLocalePreference(
+                sanitizeZCodeEndpointOrigin(
+                  migrateLegacyWorkspaceSession(migrateLegacyBuiltinAgentCliProviders(value)),
+                ),
               ),
             ),
           ),
@@ -559,6 +567,9 @@ export const appSettingsPatchSchema = z.object({
   computerUseComposerEntryHidden: z.boolean().optional(),
   taskAutoArchiveEnabled: z.boolean().optional(),
   taskAutoArchiveOlderThanDays: z.number().int().positive().max(365).optional(),
+  taskAutoArchiveDefaultsInitialized: z.boolean().optional(),
+  workspaceAutoImportEnabled: z.boolean().optional(),
+  workspaceAutoImportRoots: z.array(z.string()).optional(),
   closeToTrayOnWindows: z.boolean().optional(),
   keepAwakeWhileRunning: z.boolean().optional(),
   closeToTrayOnWindowsMigrationInitialized: z.boolean().optional(),
