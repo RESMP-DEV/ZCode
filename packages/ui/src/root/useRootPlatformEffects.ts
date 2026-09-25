@@ -11,6 +11,14 @@ import { matchesPrimaryShortcut } from "@/lib/keyboardShortcuts.js";
 import { isShortcutRecordingActive } from "@/shortcuts/bindings.js";
 import { isRendererReloadNavigation } from "@/lib/rendererNavigation.js";
 import { useOptionalBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
+import { buildTaskEntityKey } from "@/lib/taskQueryCache.js";
+import {
+  reconcileTaskQueryCacheUnread,
+  rollbackTaskQueryCacheUnread,
+  setTaskQueryCacheUnreadOverlay,
+  useTaskQueryCacheStore,
+} from "@/store/taskQueryCacheStore.js";
+import { bumpTaskListMembershipVersion } from "@/v4/taskListMembershipVersion.js";
 import { shouldPublishCompleteWorkspaceSnapshot } from "@/root/rootPlatformWorkspaceSync.js";
 import {
   createShareImportIntent,
@@ -218,6 +226,40 @@ export function useRootPlatformEffects({
             targetWorkspacePath,
             targetWorkspaceIdentity ? { workspaceIdentity: targetWorkspaceIdentity } : undefined,
           );
+          // 修复原因：此前这里只调用 setActiveTaskId（清 Renderer 本地未读映射），
+          // 不走任务行点击的持久化未读清除，导致用户正看着的任务仍被 dock 角标计数、
+          // 重启后蓝点回弹。这里对齐 handleSelectTask 的 compare-and-clear 路径；
+          // 远端 workspace 断开时保守跳过持久化清除，避免把未读写到错误的远端连接上。
+          if (taskMeta && !targetWorkspaceIdentity && typeof taskMeta.unreadAt === "number") {
+            const targetTask = {
+              taskId,
+              workspacePath: targetWorkspacePath,
+            };
+            const taskEntityKey = buildTaskEntityKey(targetTask);
+            const cachedUnreadAt =
+              useTaskQueryCacheStore.getState().taskMetaByEntityKey[taskEntityKey]?.unreadAt;
+            const expectedUnreadAt = cachedUnreadAt ?? taskMeta.unreadAt;
+            setTaskQueryCacheUnreadOverlay(targetTask, undefined);
+            if (baseServices) {
+              void baseServices.zcodeTaskService
+                .setTaskUnread({
+                  ...targetTask,
+                  unread: false,
+                  expectedUnreadAt,
+                })
+                .then((meta) => {
+                  reconcileTaskQueryCacheUnread(targetTask, meta.unreadAt);
+                  bumpTaskListMembershipVersion();
+                })
+                .catch((error: unknown) => {
+                  rollbackTaskQueryCacheUnread(targetTask, expectedUnreadAt);
+                  logger.warn(
+                    `[Root] 通知点击清除未读状态失败 taskId=${taskId}:`,
+                    error instanceof Error ? error.message : String(error),
+                  );
+                });
+            }
+          }
           useZCodeSessionStore
             .getState()
             .setActiveTaskId(targetWorkspacePath, taskId, targetWorkspaceIdentity);
@@ -281,7 +323,7 @@ export function useRootPlatformEffects({
       disposeNotificationClick();
       disposeUpdateCheckResult();
     };
-  }, [activeWorkspaceIdentity, activeWorkspacePath, platform, tabs]);
+  }, [activeWorkspaceIdentity, activeWorkspacePath, baseServices, platform, tabs]);
 
   useEffect(() => {
     const pending = pendingShareImportRef.current;

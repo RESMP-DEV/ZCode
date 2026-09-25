@@ -203,6 +203,8 @@ export const TID_CONVERSATION_SECTION = "conversation-section";
 export const TID_PROJECT_SECTION = "project-section";
 /** 对话分区新建任务按钮 */
 export const TID_CONVERSATION_NEW_TASK = "conversation-new-task";
+/** 对话分区待办摘要按钮 */
+export const TID_ATTENTION_DIGEST = "conversation-attention-digest";
 /** 项目分区添加菜单按钮 */
 export const TID_PROJECT_ADD = "project-add";
 /** Composer workspace 选择触发器 */

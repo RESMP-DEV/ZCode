@@ -128,6 +128,7 @@ import { shouldReportHostConsoleError, stringifyHostLogArg } from "./hostLog.js"
 import { flushHostE2ECoverage } from "./e2eCoverage.js";
 import { runHostShutdownPhases, type HostShutdownResult } from "./hostShutdownPhases.js";
 import { initializeHostApiNetworkTransportOwner } from "./hostInitialization.js";
+import { startTaskAutoArchiveSweep, stopTaskAutoArchiveSweep } from "./taskAutoArchiveSweep.js";
 import { createHostUncaughtExceptionHandler } from "./hostUncaughtExceptionGuard.js";
 import {
   recordCronRunOutcomeBestEffort,
@@ -2213,6 +2214,7 @@ function disposeHostResourcesBestEffort(reason: string): void {
   logger.info(`disposing host resources, reason=${reason}`);
   stopHostNetworkTelemetry();
   disposeLocalResourceTelemetry();
+  stopTaskAutoArchiveSweep();
   disposeAttachedServicePorts();
   windowHostControllerRuntime.dispose();
   for (const key of Array.from(cronRunSubscriptions.keys())) {
@@ -2895,6 +2897,9 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
           services.register(IZCodeTaskService, reportingZCodeTaskService);
         }
         wireLocalResourceTelemetry(services);
+        // 72h 自动归档周期 sweep：单例 timer，惰性解析 activeServices（host 释放后
+        // resolveTaskService 返回 null，其余 host 初始化时可重新接管）。
+        startTaskAutoArchiveSweep(() => activeServices?.getOptional(IZCodeTaskService) ?? null);
         hasDisposedHostResources = false;
         disposeHostResourcesInFlight = null;
         const agentWarmupTargets =

@@ -140,6 +140,7 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
   taskListLoading,
   taskListHasMore,
   taskListHasUnread = false,
+  taskListHasPendingAction = false,
   taskListLiveWorkflowCount = 0,
   onShowMoreTasks,
   reconnectingRemoteWorkspaceKeys,
@@ -168,6 +169,8 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
   taskListLoading: boolean;
   taskListHasMore: boolean;
   taskListHasUnread?: boolean;
+  /** 组内存在等用户处理的阻塞交互（permission/input）；收起时显示琥珀色点。 */
+  taskListHasPendingAction?: boolean;
   /** 组内在跑的工作流 run 数；项目收起时在未读点旁画脉冲灯（>1 带数量）。 */
   taskListLiveWorkflowCount?: number;
   onShowMoreTasks: () => void;
@@ -751,6 +754,15 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
           aria-hidden="true"
           data-workspace-unread-indicator="true"
           className="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-500 dark:bg-sky-400"
+        />
+      ) : null}
+      {!isExpanded && taskListHasPendingAction ? (
+        // 第二指示语义：蓝点 = 有没看过的结果；琥珀点 = 有等用户处理的阻塞。
+        // 阻塞状态持久化在 tasks-index meta，app 重启/会话未打开也保留。
+        <span
+          aria-hidden="true"
+          data-workspace-attention-indicator="true"
+          className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500 dark:bg-amber-400"
         />
       ) : null}
       {!isExpanded && taskListLiveWorkflowCount > 0 ? (

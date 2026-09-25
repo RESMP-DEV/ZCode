@@ -29,6 +29,7 @@ import {
 } from "./workspaceFileIgnore.js";
 import { createServiceLogger } from "../logger/serviceLogger.js";
 import { getConversationWorkspaceDir } from "../paths.js";
+import { scanWorkspaceCandidates } from "./workspaceDiscovery.js";
 const DEFAULT_TEXT_READ_BYTES = 128 * 1024;
 const MAX_TEXT_READ_BYTES = 256 * 1024;
 const DEFAULT_MEDIA_PREVIEW_BYTES = 4 * 1024 * 1024;
@@ -368,6 +369,13 @@ export function createFileService(options: CreateFileServiceOptions = {}): IFile
   };
 
   return {
+    async discoverWorkspaceCandidates(params: {
+      roots: string[];
+      maxDepth?: number;
+      maxResults?: number;
+    }): Promise<string[]> {
+      return scanWorkspaceCandidates(params);
+    },
     async readdir(params: { path: string; includeHidden?: boolean }): Promise<FileEntry[]> {
       const entries = await readdir(params.path, { withFileTypes: true });
       const visibleEntries = await Promise.all(

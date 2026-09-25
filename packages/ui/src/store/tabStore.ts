@@ -51,6 +51,11 @@ export interface WorkspaceTabOptions {
   workspaceIdentity?: string;
   localWorkspacePath?: string;
   workspacePurpose?: WorkspacePurpose;
+  /**
+   * 新 tab 插到列表尾部而不是顶部。批量自动导入（扫描出的项目）用 append，
+   * 避免一次性把用户手工整理的侧栏顺序整体顶下去。
+   */
+  append?: boolean;
 }
 
 export interface RestorableWorkspaceTab {
@@ -333,7 +338,7 @@ export function createTabStore(storage: StorageLike | null | undefined = undefin
         // 任务区只遍历 workspace tabs；如果这里只 bump 任务列表版本而不补 tab，
         // 新任务虽然已经持久化成功，侧边栏里仍然没有对应分组可渲染。这里补一个仅确保可见的入口，
         // 既让目标 workspace 进入任务区数据源，又不打断用户当前正在看的 tab / settings 上下文。
-        tabs: [tab, ...state.tabs],
+        tabs: options?.append ? [...state.tabs, tab] : [tab, ...state.tabs],
         expandedWorkspacePaths: ensureWorkspaceExpanded(
           state.expandedWorkspacePaths,
           workspacePath,

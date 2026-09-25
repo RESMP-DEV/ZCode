@@ -1228,6 +1228,31 @@ export const zcodeTaskMetaSchema = z.object({
   offPeakTaskId: nonEmptyStringSchema.optional(),
   unreadAt: z.number().int().nonnegative().optional(),
   status: zcodeTaskPersistStatusSchema.optional(),
+  // sessions-index 队首阻塞交互摘要：随 meta_json 持久化。此前该字段只在 UI 内存里
+  // 从实时摘要映射，会话未订阅或 app 重启后无任何痕迹，表现为「点完通知就找不到
+  // 哪件事还在等处理」。落盘后侧栏角标可以回退读取该字段。
+  pendingInteraction: z
+    .object({
+      interactionId: nonEmptyStringSchema,
+      kind: z.enum(["permission", "userInput"]),
+      toolName: z.string().optional(),
+      autoResolution: z
+        .union([
+          z.object({
+            state: z.enum(["hiddenGrace", "visibleCountdown"]),
+            startedAt: z.number().int().nonnegative(),
+            visibleAt: z.number().int().nonnegative(),
+            deadlineAt: z.number().int().nonnegative(),
+          }),
+          z.object({
+            state: z.literal("snoozed"),
+            startedAt: z.number().int().nonnegative(),
+            snoozedAt: z.number().int().nonnegative(),
+          }),
+        ])
+        .optional(),
+    })
+    .optional(),
   lastError: z
     .object({
       code: z.string().optional(),

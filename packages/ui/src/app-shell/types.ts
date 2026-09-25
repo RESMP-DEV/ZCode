@@ -92,6 +92,8 @@ export interface AppProps {
   remoteConnectionLogs?: RemoteConnectionLogEntry[];
   onCreateTask: (request?: CreateTaskRequest) => void;
   onCreateConversationTask?: () => void;
+  /** 侧栏「待办摘要」：派发跨 workspace 待办摘要 agent 任务到对话工作区。 */
+  onCreateAttentionDigest?: (locale: string) => void;
   onResolveConversationWorkspace?: () => Promise<string>;
   onOpenWorkspace: () => void;
   onOpenFolderFromWorkspaceMenu: () => void;

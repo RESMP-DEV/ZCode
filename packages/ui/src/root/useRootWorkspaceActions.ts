@@ -116,6 +116,7 @@ export function useRootWorkspaceActions({
     handleResolveConversationWorkspace,
     handleEnsureConversationWorkspace,
     handleCreateConversationTask,
+    handleCreateAttentionDigest,
   } = useConversationWorkspaceActions({
     services,
     addTab,
@@ -575,6 +576,7 @@ export function useRootWorkspaceActions({
     handleResolveConversationWorkspace,
     handleEnsureConversationWorkspace,
     handleCreateConversationTask,
+    handleCreateAttentionDigest,
     handleOpenWorkspace,
     handleOpenFolderFromWorkspaceMenu,
     handleCreateScratchWorkspace,

@@ -142,6 +142,7 @@ interface TaskIndexStatePatch {
   status?: ZCodeTaskMeta["status"];
   lastError?: ZCodeTaskMeta["lastError"];
   target?: ZCodeTaskMeta["target"];
+  pendingInteraction?: ZCodeTaskMeta["pendingInteraction"];
   updatedAt?: number;
 }
 
@@ -925,6 +926,13 @@ export class TaskIndexRepo {
     if (rows.length === 0) {
       return [];
     }
+    // 防御：meta 仍带 pendingInteraction 的行视为「还有等用户处理的阻塞」，
+    // 即使 task_status 已收敛为 completed 也不自动归档（两者理论上互斥，
+    // 但导入行/旧数据可能不一致，归档必须保守）。
+    const archivableRows = rows.filter((row) => rowToMeta(row).pendingInteraction == null);
+    if (archivableRows.length === 0) {
+      return [];
+    }
 
     const archiveTask = this.getDatabase().prepare(
       `UPDATE tasks
@@ -933,7 +941,7 @@ export class TaskIndexRepo {
     );
     this.getDatabase().exec("BEGIN IMMEDIATE");
     try {
-      for (const row of rows) {
+      for (const row of archivableRows) {
         archiveTask.run(row.workspace_key, row.task_id);
       }
       this.getDatabase().exec("COMMIT");
@@ -941,8 +949,99 @@ export class TaskIndexRepo {
       this.getDatabase().exec("ROLLBACK");
       throw error;
     }
-    return rows.map(rowToMeta);
+    return archivableRows.map(rowToMeta);
   }
+
+  /** 全库出现过的 workspace scope（去重），供周期自动归档 sweep 使用。 */
+  async listWorkspaceScopes(): Promise<
+    Array<{ workspacePath: string; workspaceIdentity?: string }>
+  > {
+    await this.ensureReady();
+    const rows = this.getDatabase()
+      .prepare(`SELECT DISTINCT workspace_path, workspace_identity FROM tasks WHERE deleted = 0`)
+      .all() as unknown as Array<{ workspace_path: string; workspace_identity: string | null }>;
+    const scopes = new Map<string, { workspacePath: string; workspaceIdentity?: string }>();
+    for (const row of rows) {
+      const workspacePath = row.workspace_path?.trim();
+      if (!workspacePath) {
+        continue;
+      }
+      const workspaceIdentity = row.workspace_identity?.trim() || undefined;
+      const key = workspaceIdentity ?? workspacePath;
+      if (!scopes.has(key)) {
+        scopes.set(
+          key,
+          workspaceIdentity ? { workspacePath, workspaceIdentity } : { workspacePath },
+        );
+      }
+    }
+    return [...scopes.values()];
+  }
+
+  /** 跨全部 workspace 的「需要处理」候选，供待办摘要 agent 收集上下文。 */
+  async listAttentionCandidates(params: { limit?: number }): Promise<ZCodeTaskMeta[]> {
+    await this.ensureReady();
+    const limit = Math.max(1, Math.floor(params.limit ?? 12));
+    const rows = this.getDatabase()
+      .prepare(
+        `SELECT
+          workspace_key,
+          workspace_path,
+          workspace_identity,
+          task_id,
+          title,
+          task_status,
+          provider,
+          mode,
+          model,
+          migration_source,
+          forked_from_task_id,
+          cron_automation_id,
+          off_peak_task_id,
+          created_at,
+          updated_at,
+          unread_at,
+          last_unread_at,
+          pinned,
+          archived,
+          deleted,
+          title_overridden,
+          searchable_text,
+          meta_json
+        FROM tasks
+        WHERE deleted = 0
+          AND archived = 0
+          AND (
+            unread_at IS NOT NULL
+            OR task_status = 'error'
+            OR task_status = 'running'
+            OR meta_json LIKE '%"pendingInteraction"%'
+          )
+        ORDER BY updated_at DESC, created_at DESC, task_id DESC
+        LIMIT 200`,
+      )
+      .all() as unknown as TaskIndexRow[];
+    const now = Date.now();
+    // running 只收近 72h 有活动的行：上次退出前未收口的历史任务不该灌进摘要。
+    const runningWindowMs = 72 * 60 * 60 * 1000;
+    const rank = (meta: ZCodeTaskMeta): number => {
+      if (meta.pendingInteraction) return 3;
+      if (meta.status === "error") return 2;
+      if (typeof meta.unreadAt === "number") return 1;
+      return 0;
+    };
+    return rows
+      .map(rowToMeta)
+      .filter((meta) => {
+        if (meta.pendingInteraction) return true;
+        if (meta.status === "error") return true;
+        if (typeof meta.unreadAt === "number") return true;
+        return meta.status === "running" && now - meta.updatedAt < runningWindowMs;
+      })
+      .sort((left, right) => rank(right) - rank(left) || right.updatedAt - left.updatedAt)
+      .slice(0, limit);
+  }
+
 
   private hasGroupedWorkspaceBootstrapRunSync(): boolean {
     const row = this.getDatabase()
@@ -1339,6 +1438,15 @@ export class TaskIndexRepo {
           target: Object.prototype.hasOwnProperty.call(params.meta, "target")
             ? params.meta.target
             : existingMeta?.target,
+          // pendingInteraction 与 target 同款「键缺席 = 保留」：snapshot 同步方
+          // （legacy snapshot 只有 pendingPermissions，无 userInput 摘要）不带该键时，
+          // 不能把 sessions-index 路径刚持久化的阻塞痕迹冲掉。
+          pendingInteraction: Object.prototype.hasOwnProperty.call(
+            params.meta,
+            "pendingInteraction",
+          )
+            ? params.meta.pendingInteraction
+            : existingMeta?.pendingInteraction,
           // Claude Code 导入升级成真实 ZCode session 后，protocol snapshot
           // 本身不知道迁移来源。同步运行态快照时保留已有 migrationSource，避免
           // 列表过滤和后续切模型把导入任务重新当成普通 ZCode 任务。
@@ -1609,6 +1717,13 @@ export class TaskIndexRepo {
           status: params.patch.status ?? current.status,
           lastError: "lastError" in params.patch ? params.patch.lastError : current.lastError,
           target: "target" in params.patch ? params.patch.target : current.target,
+          // lastError 同款语义：键缺席 = 保留现值（显式 undefined = 清除）。
+          // pendingInteraction 是「还有等用户处理的阻塞」持久痕迹，只有摘要明确
+          // 变空时才允许清除。
+          pendingInteraction:
+            "pendingInteraction" in params.patch
+              ? params.patch.pendingInteraction
+              : current.pendingInteraction,
         };
         const persistedMeta = this.writeRecord({
           meta: nextMeta,
@@ -1636,7 +1751,10 @@ export class TaskIndexRepo {
     workspacePath: string;
     workspaceIdentity?: string;
     taskId: string;
-    patch: Pick<TaskIndexStatePatch, "title" | "status" | "lastError" | "target" | "updatedAt">;
+    patch: Pick<
+      TaskIndexStatePatch,
+      "title" | "status" | "lastError" | "target" | "pendingInteraction" | "updatedAt"
+    >;
   }): Promise<ZCodeTaskMeta | null> {
     await this.ensureReady();
     return this.enqueueWrite(params, () => {
@@ -1654,6 +1772,10 @@ export class TaskIndexRepo {
         status: params.patch.status ?? current.status,
         lastError: "lastError" in params.patch ? params.patch.lastError : current.lastError,
         target: "target" in params.patch ? params.patch.target : current.target,
+        pendingInteraction:
+          "pendingInteraction" in params.patch
+            ? params.patch.pendingInteraction
+            : current.pendingInteraction,
       };
       return this.writeRecord({
         meta: nextMeta,

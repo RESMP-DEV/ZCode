@@ -211,6 +211,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
   reconnectingRemoteWorkspaceLogsByWorkspaceKey = EMPTY_RECONNECTING_REMOTE_WORKSPACE_LOGS_BY_WORKSPACE_KEY,
   onCreateTask,
   onCreateConversationTask,
+  onCreateAttentionDigest,
   onResolveConversationWorkspace,
   onOpenWorkspace,
   onOpenFolderFromWorkspaceMenu,
@@ -1568,6 +1569,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
                     fileTreeOpenRequest={fileTreeOpenRequest}
                     onCreateTask={handleCreateTaskInChat}
                     onCreateConversationTask={onCreateConversationTask ?? handleCreateTaskInChat}
+                    onCreateAttentionDigest={onCreateAttentionDigest}
                     onOpenFolderFromWorkspaceMenu={onOpenFolderFromWorkspaceMenu}
                     onOpenRemoteWorkspace={onOpenRemoteWorkspace}
                     theme={theme}

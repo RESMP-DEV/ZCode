@@ -21,6 +21,15 @@ export interface WorkspaceFileSearchParams {
 export interface IFileService {
   /** Host 匹配并返回有界候选，避免 Renderer 下载完整文件索引。 */
   searchWorkspaceFiles(params: WorkspaceFileSearchParams): Promise<WorkspaceFileEntry[]>;
+  /**
+   * 侧栏项目自动导入：扫描根目录（空列表回退 home）下固定深度的 git 仓库候选。
+   * 只读操作，不创建/修改任何目录；命中 `.git` 的目录不再下钻。
+   */
+  discoverWorkspaceCandidates(params: {
+    roots: string[];
+    maxDepth?: number;
+    maxResults?: number;
+  }): Promise<string[]>;
   readdir(params: { path: string; includeHidden?: boolean }): Promise<FileEntry[]>;
   stat(params: { path: string }): Promise<FileStat>;
   checkFilesExist(params: { paths: string[] }): Promise<Array<{ path: string; exists: boolean }>>;

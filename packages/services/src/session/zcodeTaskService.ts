@@ -457,6 +457,22 @@ export interface IZCodeTaskService {
     olderThanDays: number;
   }): Promise<ZCodeTaskMeta[]>;
 
+  /**
+   * 对 tasks-index 中出现过的全部 workspace 执行一轮按设置自动归档 sweep。
+   * 供周期定时器调用（侧栏 grouped 视图读取时触发的既有路径保持不变）；
+   * 返回本轮实际归档数量。
+   */
+  runTaskAutoArchiveSweep(): Promise<{ archivedCount: number }>;
+
+  /**
+   * 收集跨 workspace 的「需要处理」候选（阻塞交互 > 错误 > 未读 > 运行中），
+   * 在 conversation workspace 创建一个真实 agent 任务，prompt 内嵌各候选最近消息
+   * 尾部，由该 agent 产出按优先级排列的待办摘要；语言跟随 locale。
+   */
+  createAttentionDigestTask(params: {
+    locale?: string;
+  }): Promise<{ taskId: string; workspacePath: string }>;
+
   /** 移除 workspace 时批量归档该 workspace 下所有未归档 task，包含 pinned task */
   archiveWorkspaceTasks(params: {
     workspacePath: string;
