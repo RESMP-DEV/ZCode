@@ -72,6 +72,7 @@ import type {
   ExecutionShellSelection,
   AutomationPort,
   OffPeakPort,
+  SessionSweepPort,
   FileSystemPort,
   HttpClientPort,
   ImageProcessorPort,
@@ -367,6 +368,8 @@ export interface AgentRuntimeDeps {
   artifactStore?: ToolArtifactStorePort;
   automationPort?: AutomationPort;
   offPeakPort?: OffPeakPort;
+  /** 会话清理端口；host 经协议提供 plan/execute（备份 → tombstone）。 */
+  sessionSweepPort?: SessionSweepPort;
   contextSourcePort?: ContextSourcePort;
   eventSink?: SessionEventSink;
   logger?: Logger;

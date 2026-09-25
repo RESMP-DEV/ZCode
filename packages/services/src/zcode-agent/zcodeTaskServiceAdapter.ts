@@ -131,6 +131,7 @@ import type {
 } from "#src/session/sessionMailbox.js";
 import { TaskIndexRepo } from "#src/session/taskIndexRepo.js";
 import { getConversationWorkspaceDir } from "#src/paths.js";
+import { installSessionSweepNotifier } from "#src/session/sessionSweepService.js";
 import type {
   IZCodeAgentService,
   ZCodeAgentServiceEvent,
@@ -1080,6 +1081,40 @@ export function createZCodeTaskServiceAdapter(
       configOptions: settingsToConfigOptions(settings),
     });
   }
+
+  // Session Sweep 的 tombstone 发生在 zcodeAgentService 协议层，拿不到这里的
+  // workspace emitter；安装 notifier 桥，把删除事实按 workspace 聚合后广播
+  // task_deleted，让打开中的侧栏即时收敛（deleteArchivedTasks 批量路径同款语义）。
+  installSessionSweepNotifier((result) => {
+    const deletedScopes = new Map<string, { workspacePath: string; workspaceIdentity?: string }>();
+    for (const meta of result.deleted ?? []) {
+      const key = resolveWorkspaceKey(meta);
+      if (!deletedScopes.has(key)) {
+        deletedScopes.set(key, {
+          workspacePath: meta.workspacePath,
+          ...(meta.workspaceIdentity ? { workspaceIdentity: meta.workspaceIdentity } : {}),
+        });
+      }
+    }
+    for (const scope of deletedScopes.values()) {
+      emitWorkspaceTaskListChanged(scope, undefined, "task_deleted");
+    }
+    // pin/unpin 是 membership 变更：按 workspace 聚合发一次 task_meta_changed，
+    // 让 pinned 分组与时间线在打开中的侧栏即时换位（与 archive 广播同款语义）。
+    const pinnedScopes = new Map<string, { workspacePath: string; workspaceIdentity?: string }>();
+    for (const meta of result.pinnedChanged ?? []) {
+      const key = resolveWorkspaceKey(meta);
+      if (!pinnedScopes.has(key)) {
+        pinnedScopes.set(key, {
+          workspacePath: meta.workspacePath,
+          ...(meta.workspaceIdentity ? { workspaceIdentity: meta.workspaceIdentity } : {}),
+        });
+      }
+    }
+    for (const scope of pinnedScopes.values()) {
+      emitWorkspaceTaskListChanged(scope, undefined, "task_meta_changed");
+    }
+  });
 
   async function readTaskAutoArchiveConfig(): Promise<{
     olderThanDays: number;
@@ -3205,6 +3240,8 @@ export function createZCodeTaskServiceAdapter(
       }
       disposed = true;
       memoryDiagnostics.dispose();
+      // 释放 Session Sweep 的广播桥：本 adapter 退出后不再代发删除事件。
+      installSessionSweepNotifier(null);
       // syncer 持有 agentService 的 v4 帧订阅（sessions-index/workspace-config），
       // 必须在 agentService.disposeAll 前释放，否则 emitter dispose 时仍会回调到已失效的 syncer。
       // workspaceEmitters 已下沉到 syncer，由 syncer.disposeAll 统一回收。
@@ -3218,6 +3255,7 @@ export function createZCodeTaskServiceAdapter(
         return;
       }
       disposed = true;
+      installSessionSweepNotifier(null);
       // app 退出必须先断开 task index syncer 的订阅，再等待 agent 进程树完成清理；
       // 否则 host 退出时会把 zcode-cli 的 SIGKILL 兜底 timer 一起带走。
       taskIndexSyncer.disposeAll();
