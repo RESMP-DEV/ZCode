@@ -18,7 +18,10 @@ export function initializeNewTaskDraft(
   return {
     ...draft,
     initializeFromNewTask: undefined,
-    mode: recent?.mode === "plan" ? "build" : (recent?.mode ?? "build"),
+    // 产品默认：新 prompt 的权限模式恒为 yolo（specs/new-prompt-default-permission.md）。
+    // Recent 的 mode 是上次提交的回声（多数情况只是旧默认 build），不再回填新任务；
+    // 用户在新草稿内的显式切换仍按 scope 草稿持久化，发送路径不改写。
+    mode: "yolo",
     planEnabled: false,
     modelSelection:
       recent?.modelSelection ??
