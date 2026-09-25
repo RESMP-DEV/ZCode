@@ -58,8 +58,15 @@ export function isTaskListRowActive(task: ZCodeTaskMeta): boolean {
 export function getTaskListAttention(
   task: ZCodeTaskMeta,
 ): { kind: "permission" | "userInput"; count: number } | null {
-  const summary = getTaskListRowActivity(task)?.pendingInteractions;
+  const activity = getTaskListRowActivity(task);
+  const summary = activity?.pendingInteractions;
   if (!summary) {
+    if (activity) {
+      // sidecar 在场而摘要为空 = sessions-index 权威地说「当前没有阻塞」；
+      // 此时不能再回退 tasks-index 的持久值，否则 stale pendingInteraction
+      // 会盖过实时的无阻塞状态，角标消失不掉。
+      return null;
+    }
     // sessions-index sidecar 缺席（workspace 未订阅、app 刚重启、搜索结果）时，
     // 回退 tasks-index 持久化的队首阻塞摘要，保证「还在等用户处理」的角标不丢。
     const persisted = task.pendingInteraction;

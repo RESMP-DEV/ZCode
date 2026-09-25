@@ -32,17 +32,20 @@ export async function runWorkspaceAutoImportScan(
   if (settings.workspaceAutoImportEnabled === false) {
     return { scanned: 0, imported: 0 };
   }
-  const candidates = await services.fileService.discoverWorkspaceCandidates({
-    roots: settings.workspaceAutoImportRoots ?? [],
-    maxDepth: 2,
-    maxResults: WORKSPACE_AUTO_IMPORT_MAX_RESULTS,
-  });
   const existingPaths = new Set(
     tabStore
       .getState()
       .tabs.filter(isWorkspaceTab)
       .map((tab) => tab.workspacePath),
   );
+  const candidates = await services.fileService.discoverWorkspaceCandidates({
+    roots: settings.workspaceAutoImportRoots ?? [],
+    maxDepth: 2,
+    maxResults: WORKSPACE_AUTO_IMPORT_MAX_RESULTS,
+    // 已在侧栏的路径在扫描侧排除（不占候选上限），否则既有仓库会填满固定窗口，
+    // 扫描顺序靠后的新仓库永远轮不到导入。
+    excludePaths: [...existingPaths],
+  });
   let imported = 0;
   for (const workspacePath of candidates) {
     if (existingPaths.has(workspacePath)) {

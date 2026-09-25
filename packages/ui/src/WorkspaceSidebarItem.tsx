@@ -759,8 +759,10 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
       {!isExpanded && taskListHasPendingAction ? (
         // 第二指示语义：蓝点 = 有没看过的结果；琥珀点 = 有等用户处理的阻塞。
         // 阻塞状态持久化在 tasks-index meta，app 重启/会话未打开也保留。
+        // 点承载真实状态而非装饰，读屏器必须能读到，不能 aria-hidden。
         <span
-          aria-hidden="true"
+          role="img"
+          aria-label={intl.formatMessage({ id: "workspaceSidebar.attentionIndicator" })}
           data-workspace-attention-indicator="true"
           className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500 dark:bg-amber-400"
         />

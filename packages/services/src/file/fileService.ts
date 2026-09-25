@@ -373,6 +373,7 @@ export function createFileService(options: CreateFileServiceOptions = {}): IFile
       roots: string[];
       maxDepth?: number;
       maxResults?: number;
+      excludePaths?: string[];
     }): Promise<string[]> {
       return scanWorkspaceCandidates(params);
     },

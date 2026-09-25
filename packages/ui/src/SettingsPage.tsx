@@ -1098,7 +1098,10 @@ export function SettingsPage({
   const handleRunWorkspaceAutoImportScan = useCallback(async () => {
     try {
       const result = await runWorkspaceAutoImportScan(
-        { settingService: services.settingService, fileService: services.fileService },
+        // 扫描的是本地磁盘并写入本地侧栏；远端 workspace 激活时 useServices()
+        // 会解析到远端 host，必须固定用本地 host services，否则远端路径会
+        // 被当成普通本地路径 ensure 成 tab。
+        { settingService: localHostServices.settingService, fileService: localHostServices.fileService },
         tabStoreApi,
       );
       toast(
@@ -1115,7 +1118,7 @@ export function SettingsPage({
         ),
       );
     }
-  }, [intl, services.fileService, services.settingService, tabStoreApi]);
+  }, [intl, localHostServices.fileService, localHostServices.settingService, tabStoreApi]);
   const handleCloseToTrayOnWindowsChange = useCallback(
     async (enabled: boolean) => {
       await runSettingsActionAsync({

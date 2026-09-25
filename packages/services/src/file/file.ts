@@ -24,11 +24,13 @@ export interface IFileService {
   /**
    * 侧栏项目自动导入：扫描根目录（空列表回退 home）下固定深度的 git 仓库候选。
    * 只读操作，不创建/修改任何目录；命中 `.git` 的目录不再下钻。
+   * excludePaths 在计数前排除（已导入的 workspace 不占候选上限）。
    */
   discoverWorkspaceCandidates(params: {
     roots: string[];
     maxDepth?: number;
     maxResults?: number;
+    excludePaths?: string[];
   }): Promise<string[]>;
   readdir(params: { path: string; includeHidden?: boolean }): Promise<FileEntry[]>;
   stat(params: { path: string }): Promise<FileStat>;

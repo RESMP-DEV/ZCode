@@ -211,6 +211,18 @@ function taskStatusFromSummaryPhase(phase: SessionPhase): ZCodeTaskMeta["status"
   }
 }
 
+/**
+ * 阻塞交互摘要的变化判定：sessions-index 的 pendingInteraction 是 conflated 最新态，
+ * interactionId/kind 任一变化（出现、解决、换代）都算变化。内存 diff 与首次基线对账
+ * 共用同一谓词，避免两处口径漂移。
+ */
+export function pendingInteractionChanged(
+  previous: ZCodeTaskMeta["pendingInteraction"] | null,
+  next: ZCodeTaskMeta["pendingInteraction"] | null,
+): boolean {
+  return previous?.interactionId !== next?.interactionId || previous?.kind !== next?.kind;
+}
+
 function buildBaselineMetaFromSummary(
   target: ZCodeAgentWorkspaceTarget,
   summary: SessionSummary,
@@ -589,10 +601,10 @@ export function createZCodeTaskIndexSyncer(
         taskId: target.sessionId,
         // error 的 lastError 详情不在 sessions-index 摘要里，留给随后的回源 snapshot
         // 写权威值（patch 不带 lastError 键 = 保留现值）；completed 沿旧语义清空。
-        // 终态必然不再有等用户的阻塞交互，这里显式清掉持久化摘要，防止归档守卫
-        // 被残留的 pendingInteraction 永久挡住。
+        // 终态必然不再有等用户的阻塞交互，两个分支都要显式清掉持久化摘要，防止归档守卫
+        // 被残留的 pendingInteraction 永久挡住（applyAgentPatch 键缺席 = 保留）。
         patch: failed
-          ? { status: "error", updatedAt }
+          ? { status: "error", pendingInteraction: undefined, updatedAt }
           : { status: "completed", lastError: undefined, pendingInteraction: undefined, updatedAt },
       })
       .then((meta) => {
@@ -706,10 +718,7 @@ export function createZCodeTaskIndexSyncer(
     // 侧栏没有任何「还在等用户处理」的痕迹——这正是「点完通知就丢了」的根因。
     const nextPending = next.pendingInteraction ?? null;
     const previousPending = previous?.pendingInteraction ?? null;
-    if (
-      nextPending?.interactionId !== previousPending?.interactionId ||
-      nextPending?.kind !== previousPending?.kind
-    ) {
+    if (pendingInteractionChanged(previousPending, nextPending)) {
       applyPendingInteractionChange(target, next.pendingInteraction ?? undefined);
     }
   }
@@ -758,9 +767,28 @@ export function createZCodeTaskIndexSyncer(
     for (let offset = 0; offset < candidates.length; offset += INITIAL_BASELINE_SEED_BATCH_SIZE) {
       const batch = candidates.slice(offset, offset + INITIAL_BASELINE_SEED_BATCH_SIZE);
       const results = await Promise.allSettled(
-        batch.map((summary) =>
-          taskIndexRepo.seedTaskMetaIfMissing(buildBaselineMetaFromSummary(state.target, summary)),
-        ),
+        batch.map(async (summary) => {
+          const stored = await taskIndexRepo.seedTaskMetaIfMissing(
+            buildBaselineMetaFromSummary(state.target, summary),
+          );
+          // 存量行对账：app 退出期间交互可能已消失。后续 diff 只比较内存 summaries
+          // 基线，若不在这里与落库值对账，stale pendingInteraction 会永久点亮琥珀点、
+          // 霸占摘要首位并挡住 72h 自动归档。显式 undefined = 清除；不带 updatedAt，
+          // 校准不算新活动、不改变列表排序。新插入行 stored 与基线一致，天然短路。
+          const livePending = summary.pendingInteraction ?? undefined;
+          if (!pendingInteractionChanged(stored.pendingInteraction, livePending)) {
+            return;
+          }
+          const meta = await taskIndexRepo.applyAgentPatch({
+            workspacePath: state.target.workspacePath,
+            workspaceIdentity: state.target.workspaceIdentity,
+            taskId: summary.sessionId,
+            patch: { pendingInteraction: livePending },
+          });
+          if (meta) {
+            emitWorkspaceTaskListChanged(state.target, meta, "task_meta_changed");
+          }
+        }),
       );
       for (const result of results) {
         if (result.status === "rejected") {

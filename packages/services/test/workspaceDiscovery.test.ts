@@ -82,3 +82,29 @@ test("不存在的 root 只产生空结果，不抛错", async () => {
   });
   assert.deepEqual(candidates, []);
 });
+
+test("excludePaths 在计数前排除，已导入仓库不占候选上限", async () => {
+  await withRoot(async (root) => {
+    for (const name of ["imported-repo", "new-repo"]) {
+      await makeRepo(join(root, name));
+    }
+    // 已导入仓库占满窗口时，排除它才让 new-repo 进入候选集。
+    const withoutExclusion = await scanWorkspaceCandidates({
+      roots: [root],
+      maxResults: 1,
+    });
+    assert.deepEqual(
+      withoutExclusion.map((path) => path.slice(root.length + 1)),
+      ["imported-repo"],
+    );
+    const withExclusion = await scanWorkspaceCandidates({
+      roots: [root],
+      maxResults: 1,
+      excludePaths: [join(root, "imported-repo")],
+    });
+    assert.deepEqual(
+      withExclusion.map((path) => path.slice(root.length + 1)),
+      ["new-repo"],
+    );
+  });
+});

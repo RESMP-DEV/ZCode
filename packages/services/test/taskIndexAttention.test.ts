@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { ZCodeTaskMeta } from "@zcode/shared";
+import { pendingInteractionChanged } from "../src/zcode-agent/zcodeTaskIndexSyncer.js";
 import { TaskIndexRepo } from "../src/session/taskIndexRepo.js";
 
 function buildMeta(params: {
@@ -196,4 +197,61 @@ test("archiveStaleTasks 跳过 pendingInteraction 行并按天数归档", async 
       ["stale-completed"],
     );
   });
+});
+
+test("listAttentionCandidates 优先级行不被更新的低优先级行挤出 SQL 窗口", async () => {
+  await withRepo(async (repo) => {
+    const now = Date.now();
+    // 201 条更新的未读行按 recency 序全部落在 LIMIT 200 窗口内；
+    // 最旧的 pendingInteraction 行 recency 排第 202——纯 recency 窗口会把它挤出候选集，
+    // 优先级排序必须进 SQL 才能让阻塞行稳定进摘要。
+    for (let index = 0; index < 201; index += 1) {
+      const taskId = `unread-${index}`;
+      await repo.syncTaskMeta({
+        meta: buildMeta({ taskId, workspacePath: "/tmp/ws-a", updatedAt: now - index }),
+      });
+      await repo.updateTaskState({
+        workspacePath: "/tmp/ws-a",
+        taskId,
+        patch: { unreadAt: now - index },
+      });
+    }
+    await repo.syncTaskMeta({
+      meta: buildMeta({
+        taskId: "pending-old",
+        workspacePath: "/tmp/ws-b",
+        updatedAt: now - 100000,
+        status: "running",
+        pendingInteraction: { interactionId: "req-old", kind: "permission" },
+      }),
+    });
+    const candidates = await repo.listAttentionCandidates({ limit: 12 });
+    assert.equal(candidates[0]?.taskId, "pending-old");
+  });
+});
+
+test("pendingInteractionChanged 判定出现/解决/换代与不变", () => {
+  const permission: ZCodeTaskMeta["pendingInteraction"] = {
+    interactionId: "req-1",
+    kind: "permission",
+  };
+  const nextKind: ZCodeTaskMeta["pendingInteraction"] = {
+    interactionId: "req-1",
+    kind: "userInput",
+  };
+  // 出现 / 解决。
+  assert.equal(pendingInteractionChanged(undefined, permission), true);
+  assert.equal(pendingInteractionChanged(permission, undefined), true);
+  // 换代（interactionId 或 kind 变化）。
+  assert.equal(pendingInteractionChanged(permission, nextKind), true);
+  assert.equal(
+    pendingInteractionChanged(permission, { interactionId: "req-2", kind: "permission" }),
+    true,
+  );
+  // 不变（toolName 等次要字段不参与判定）。
+  assert.equal(
+    pendingInteractionChanged(permission, { ...permission, toolName: "Bash" }),
+    false,
+  );
+  assert.equal(pendingInteractionChanged(undefined, undefined), false);
 });

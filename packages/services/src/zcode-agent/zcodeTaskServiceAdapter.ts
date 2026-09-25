@@ -2525,12 +2525,17 @@ export function createZCodeTaskServiceAdapter(
         // 单候选快照失败只降级为 meta 摘要行，不让一个坏任务断掉整份摘要。
         let tailText = "";
         try {
-          const snapshot = await service.getTaskSnapshot({
-            taskId: candidate.taskId,
+          // 摘要是只读观察者：getTaskSnapshot 走 resumeSession（start-if-needed），
+          // 会为休眠候选拉起 runtime 并制造第二个生命周期写入者。这里与终态回源
+          // 同款 readSession(existing-only)：只读现有 runtime，无 runtime 即走 meta 回退。
+          const sessionSnapshot = await options.zcodeAgentService.readSession({
             workspacePath: candidate.workspacePath,
             workspaceIdentity: candidate.workspaceIdentity,
+            sessionId: candidate.taskId,
+            runtimePolicy: "existing-only",
             messageLimit: 8,
           });
+          const snapshot = snapshotToZCode(sessionSnapshot);
           tailText = (snapshot?.messages ?? [])
             .slice(-6)
             .map((message) => {

@@ -72,6 +72,7 @@ export async function scanWorkspaceCandidates(params: {
   roots: string[];
   maxDepth?: number;
   maxResults?: number;
+  excludePaths?: string[];
 }): Promise<string[]> {
   const maxDepth = Math.max(
     0,
@@ -82,6 +83,9 @@ export async function scanWorkspaceCandidates(params: {
     Math.floor(params.maxResults ?? WORKSPACE_DISCOVERY_DEFAULT_MAX_RESULTS),
   );
   const roots = normalizeWorkspaceDiscoveryRoots(params.roots);
+  // 排除在计数前生效：已导入的 workspace 不占候选上限，否则固定窗口会被
+  // 既有路径填满，扫描顺序靠后的新仓库永远进不了候选集。
+  const excludePaths = new Set(params.excludePaths ?? []);
   const candidates: string[] = [];
   const seen = new Set<string>();
   const queue: Array<{ path: string; depth: number }> = roots
@@ -91,7 +95,9 @@ export async function scanWorkspaceCandidates(params: {
   while (queue.length > 0 && candidates.length < maxResults) {
     const { path, depth } = queue.shift()!;
     if (await isGitRepository(path)) {
-      candidates.push(path);
+      if (!excludePaths.has(path)) {
+        candidates.push(path);
+      }
       continue;
     }
     if (depth >= maxDepth) {
