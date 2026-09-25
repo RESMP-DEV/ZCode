@@ -633,7 +633,10 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
   );
   const localeMenuValue = localePreference === "system" ? "system" : localePreference;
   const workspaceTaskLists = useWorkspaceTaskLists({
-    workspaceTabs: projectWorkspaceTabs,
+    // conversation workspace 一并进入 scope：「任务」分区收起时内容组件卸载，
+    // 分区头琥珀点 rollup 依赖这条 workspace-kind 查询维持（sessions-index 订阅按
+    // endpoint+workspace 引用计数复用，分区展开时不产生重复订阅）。
+    workspaceTabs,
     activeWorkspacePath: workspacePath,
     activeWorkspaceIdentity: workspaceIdentity,
     sortBy: taskSortBy,
@@ -649,6 +652,16 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
         ]),
       ),
     [workspaceTaskLists.groups],
+  );
+  const conversationTaskListHasPendingAction = useMemo(
+    () =>
+      conversationWorkspaceTabs.some(
+        (tab) =>
+          workspaceTaskGroupByKey.get(
+            buildTaskWorkspaceKey(tab.workspacePath, tab.workspaceIdentity),
+          )?.hasPendingAction === true,
+      ),
+    [conversationWorkspaceTabs, workspaceTaskGroupByKey],
   );
   const handleShowMoreWorkspaceTasks = useCallback((workspaceKey: string) => {
     setWorkspaceTaskVisibleLimitByKey((current) =>
@@ -1603,6 +1616,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
                               open={purposeSectionPreferences.conversationsExpanded}
                               onOpenChange={handleConversationSectionOpenChange}
                               testId={TID_CONVERSATION_SECTION}
+                              attentionIndicator={conversationTaskListHasPendingAction}
                               action={
                                 <div className="flex items-center">
                                   {onCreateAttentionDigest ? (

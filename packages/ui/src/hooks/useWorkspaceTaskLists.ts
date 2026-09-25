@@ -72,6 +72,8 @@ interface WorkspaceTaskListGroupResult {
   total: number;
   hasMore: boolean;
   unreadTaskKeys: string[];
+  /** 分页裁剪前的完整结果中是否存在阻塞交互；收起行/「任务」分区头琥珀点 rollup 用。 */
+  hasPendingAction: boolean;
 }
 
 interface WorkspaceTaskListRefreshFlight {
@@ -153,6 +155,9 @@ async function buildWorkspaceGroupsFromSessions(params: {
       unreadTaskKeys: result.items
         .filter((task) => typeof task.unreadAt === "number")
         .map((task) => buildTaskEntityKey(task)),
+      // 与 unreadTaskKeys 同一先例：pendingInteraction 也在完整结果上固化，
+      // 否则排在分页窗口之外的阻塞任务点不亮收起行/任务分区头的琥珀点。
+      hasPendingAction: result.items.some((task) => task.pendingInteraction != null),
     });
   }
   return map;
@@ -546,6 +551,7 @@ export function useWorkspaceTaskLists(params: {
                 total: 0,
                 hasMore: false,
                 unreadTaskKeys: [],
+                hasPendingAction: false,
               };
               const visibleItems = group.items.slice(0, config.visibleLimit);
               return {
@@ -555,6 +561,7 @@ export function useWorkspaceTaskLists(params: {
                 total: group.total,
                 hasMore: group.total > visibleItems.length,
                 unreadTaskKeys: group.unreadTaskKeys,
+                hasPendingAction: group.hasPendingAction,
                 expectedInvalidationVersion: expectedInvalidationVersionByQueryKey.get(
                   config.queryKey,
                 ),

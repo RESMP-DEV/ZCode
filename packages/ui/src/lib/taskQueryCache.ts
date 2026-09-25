@@ -23,6 +23,8 @@ export interface CachedTaskListResult {
   taskKeys: TaskEntityKey[];
   /** workspace 分页前的完整未读成员；其它列表查询可省略。 */
   unreadTaskKeys?: TaskEntityKey[];
+  /** 分页前完整结果中是否存在阻塞交互（pendingInteraction）；收起行/分区头的琥珀点 rollup 用。 */
+  hasPendingAction?: boolean;
   searchSnippetsByTaskKey?: Record<TaskEntityKey, string>;
   searchSnippetListsByTaskKey?: Record<TaskEntityKey, string[]>;
   total: number;
