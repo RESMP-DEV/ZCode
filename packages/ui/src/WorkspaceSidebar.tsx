@@ -15,6 +15,7 @@ import {
   Archive,
   Blocks,
   CalendarClock,
+  ClipboardList,
   Clock3,
   Cloud,
   Folder,
@@ -49,6 +50,7 @@ import {
 import type { Locale, RemoteTarget, UserInfo, ZCodeTaskMeta } from "@zcode/shared";
 import { BUILTIN_MODEL_PROVIDER_IDS } from "@zcode/shared";
 import {
+  TID_ATTENTION_DIGEST,
   TID_CONVERSATION_NEW_TASK,
   TID_CONVERSATION_SECTION,
   TID_AUTOMATIONS_OPEN,
@@ -231,6 +233,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
   fileTreeOpenRequest,
   onCreateTask,
   onCreateConversationTask,
+  onCreateAttentionDigest,
   onOpenFolderFromWorkspaceMenu,
   onOpenRemoteWorkspace,
   theme,
@@ -279,6 +282,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
   fileTreeOpenRequest?: SidebarFileTreeOpenRequest | null;
   onCreateTask: (request?: CreateTaskRequest) => void;
   onCreateConversationTask: () => void;
+  /** 待办摘要：收集跨 workspace 的等待处理项，派发一个 agent 摘要任务。 */
+  onCreateAttentionDigest?: (locale: string) => void;
   onOpenFolderFromWorkspaceMenu: () => void;
   onOpenRemoteWorkspace?: () => void;
   theme: Theme;
@@ -315,7 +320,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
   pluginStoreActive?: boolean;
   onFileTreeOpenChange?: (open: boolean) => void;
 }) {
-  const { intl, localePreference, setLocalePreference } = useZCodeIntl();
+  const { intl, locale, localePreference, setLocalePreference } = useZCodeIntl();
   const handleTaskRowSelect = useCallback(
     (
       targetWorkspacePath: string,
@@ -1540,6 +1545,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
                                             taskListLoading={taskLoading}
                                             taskListHasMore={taskGroup?.hasMore ?? false}
                                             taskListHasUnread={taskGroup?.hasUnread ?? false}
+                                            taskListHasPendingAction={
+                                              taskGroup?.hasPendingAction ?? false
+                                            }
                                             taskListLiveWorkflowCount={
                                               taskGroup?.liveWorkflowCount ?? 0
                                             }
@@ -1596,25 +1604,48 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
                               onOpenChange={handleConversationSectionOpenChange}
                               testId={TID_CONVERSATION_SECTION}
                               action={
-                                <ControlHintTooltip
-                                  title={intl.formatMessage({
-                                    id: "workspaceSidebar.newConversation",
-                                  })}
-                                >
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon-sm"
-                                    className="text-foreground-subtle hover:text-foreground"
-                                    aria-label={intl.formatMessage({
+                                <div className="flex items-center">
+                                  {onCreateAttentionDigest ? (
+                                    <ControlHintTooltip
+                                      title={intl.formatMessage({
+                                        id: "workspaceSidebar.attentionDigest",
+                                      })}
+                                    >
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon-sm"
+                                        className="text-foreground-subtle hover:text-foreground"
+                                        aria-label={intl.formatMessage({
+                                          id: "workspaceSidebar.attentionDigest",
+                                        })}
+                                        data-testid={TID_ATTENTION_DIGEST}
+                                        onClick={() => onCreateAttentionDigest(locale)}
+                                      >
+                                        <ClipboardList className="size-3.5" />
+                                      </Button>
+                                    </ControlHintTooltip>
+                                  ) : null}
+                                  <ControlHintTooltip
+                                    title={intl.formatMessage({
                                       id: "workspaceSidebar.newConversation",
                                     })}
-                                    data-testid={TID_CONVERSATION_NEW_TASK}
-                                    onClick={onCreateConversationTask}
                                   >
-                                    <MessageCirclePlus className="size-3.5" />
-                                  </Button>
-                                </ControlHintTooltip>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon-sm"
+                                      className="text-foreground-subtle hover:text-foreground"
+                                      aria-label={intl.formatMessage({
+                                        id: "workspaceSidebar.newConversation",
+                                      })}
+                                      data-testid={TID_CONVERSATION_NEW_TASK}
+                                      onClick={onCreateConversationTask}
+                                    >
+                                      <MessageCirclePlus className="size-3.5" />
+                                    </Button>
+                                  </ControlHintTooltip>
+                                </div>
                               }
                             >
                               <WorkspaceTimelineTasksSection

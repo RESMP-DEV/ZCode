@@ -24,6 +24,7 @@ export const SortableWorkspaceSidebarItem = memo(function SortableWorkspaceSideb
   taskListLoading,
   taskListHasMore,
   taskListHasUnread = false,
+  taskListHasPendingAction = false,
   taskListLiveWorkflowCount = 0,
   workspaceKey,
   onShowMoreWorkspaceTasks,
@@ -49,6 +50,8 @@ export const SortableWorkspaceSidebarItem = memo(function SortableWorkspaceSideb
   taskListLoading: boolean;
   taskListHasMore: boolean;
   taskListHasUnread?: boolean;
+  /** 组内存在等用户处理的阻塞交互（permission/input）；收起时显示琥珀色点。 */
+  taskListHasPendingAction?: boolean;
   taskListLiveWorkflowCount?: number;
   workspaceKey: string;
   onShowMoreWorkspaceTasks: (workspaceKey: string) => void;
@@ -118,6 +121,7 @@ export const SortableWorkspaceSidebarItem = memo(function SortableWorkspaceSideb
       taskListLoading={taskListLoading}
       taskListHasMore={taskListHasMore}
       taskListHasUnread={taskListHasUnread}
+      taskListHasPendingAction={taskListHasPendingAction}
       taskListLiveWorkflowCount={taskListLiveWorkflowCount}
       onShowMoreTasks={handleShowMoreTasks}
       reconnectingRemoteWorkspaceKeys={reconnectingRemoteWorkspaceKeys}

@@ -60,7 +60,13 @@ export function getTaskListAttention(
 ): { kind: "permission" | "userInput"; count: number } | null {
   const summary = getTaskListRowActivity(task)?.pendingInteractions;
   if (!summary) {
-    return null;
+    // sessions-index sidecar 缺席（workspace 未订阅、app 刚重启、搜索结果）时，
+    // 回退 tasks-index 持久化的队首阻塞摘要，保证「还在等用户处理」的角标不丢。
+    const persisted = task.pendingInteraction;
+    if (!persisted) {
+      return null;
+    }
+    return { kind: persisted.kind, count: 1 };
   }
   const count = summary.permissionCount + summary.userInputCount;
   if (count === 0) {

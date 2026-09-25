@@ -11,6 +11,7 @@ import { TooltipProvider } from "@/components/ui/tooltip.js";
 import { Button } from "@/components/ui/button.js";
 import { PlatformProvider } from "@/hooks/usePlatform.js";
 import { ServiceProvider } from "@/hooks/useServices.js";
+import { useWorkspaceAutoImport } from "@/hooks/useWorkspaceAutoImport.js";
 import { useDynamicWorkflowAvailabilityLoader } from "@/hooks/useDynamicWorkflowAvailability.js";
 import { DirectoryBrowser } from "@/DirectoryBrowser.js";
 import { useTabPersistence } from "@/hooks/useTabPersistence.js";
@@ -496,6 +497,7 @@ function RootInner({
     handleResolveConversationWorkspace,
     handleEnsureConversationWorkspace,
     handleCreateConversationTask,
+    handleCreateAttentionDigest,
     handleOpenWorkspace,
     handleOpenFolderFromWorkspaceMenu,
     handleCreateScratchWorkspace,
@@ -588,6 +590,16 @@ function RootInner({
     persistSession: restoreSession && canRestoreWorkspaceSession,
     restorePersistedSession,
     buildPersistPatch: buildPersistedTabPatch,
+  });
+
+  // 侧栏项目自动导入：只在承担会话恢复/持久化的桌面主窗口、且首轮 tab 恢复完成后
+  // 执行一次，避免次级窗口重复导入或把扫描出的项目插到恢复中的 tab 序列前面。
+  useWorkspaceAutoImport({
+    services:
+      isDesktop && supportsSettings
+        ? { settingService: services.settingService, fileService: services.fileService }
+        : undefined,
+    enabled: hasCompletedInitialRestore && restoreSession && canRestoreWorkspaceSession,
   });
 
   useEffect(() => {
@@ -1045,6 +1057,7 @@ function RootInner({
             handleReconnectRemoteWorkspace={handleReconnectRemoteWorkspace}
             handleCreateTask={handleCreateTask}
             handleCreateConversationTask={handleCreateConversationTask}
+            handleCreateAttentionDigest={handleCreateAttentionDigest}
             handleResolveConversationWorkspace={handleResolveConversationWorkspace}
             handleOpenWorkspace={handleOpenWorkspace}
             handleOpenFolderFromWorkspaceMenu={handleOpenFolderFromWorkspaceMenu}

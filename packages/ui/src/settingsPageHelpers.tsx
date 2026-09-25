@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/select.js";
 import { Switch } from "@/components/ui/switch.js";
 import { Input } from "@/components/ui/input.js";
+import { Textarea } from "@/components/ui/textarea.js";
 import { Button } from "@/components/ui/button.js";
 import { SettingsBadge, SettingsGroupCard, SettingsRow } from "@/settings/SettingsPageParts.js";
 import { DataBaseDirControl } from "@/settings/DataBaseDirControl.js";
@@ -74,6 +75,8 @@ export function GeneralSectionContent({
   setNotificationSoundEnabled,
   taskAutoArchiveEnabled,
   taskAutoArchiveOlderThanDays,
+  workspaceAutoImportEnabled = true,
+  workspaceAutoImportRoots = [],
   messageStreamShowReasoning,
   messageStreamShowTodos,
   toolGroupingExploreEnabled,
@@ -93,6 +96,9 @@ export function GeneralSectionContent({
   onHttpProxyCaCertPathChange = async () => {},
   onTaskAutoArchiveEnabledChange,
   onTaskAutoArchiveOlderThanDaysChange,
+  onWorkspaceAutoImportEnabledChange = async () => {},
+  onWorkspaceAutoImportRootsChange = async () => {},
+  onRunWorkspaceAutoImportScan,
   onCloseToTrayOnWindowsChange,
   onKeepAwakeWhileRunningChange = async () => {},
   onDesktopChromiumHardwareAccelerationChange = async () => {},
@@ -137,6 +143,8 @@ export function GeneralSectionContent({
   setNotificationSoundEnabled: (enabled: boolean) => void;
   taskAutoArchiveEnabled: boolean;
   taskAutoArchiveOlderThanDays: number;
+  workspaceAutoImportEnabled?: boolean;
+  workspaceAutoImportRoots?: string[];
   messageStreamShowReasoning: boolean;
   messageStreamShowTodos: boolean;
   toolGroupingExploreEnabled: boolean;
@@ -156,6 +164,9 @@ export function GeneralSectionContent({
   onHttpProxyCaCertPathChange?: (caCertPath: string) => Promise<void>;
   onTaskAutoArchiveEnabledChange: (enabled: boolean) => Promise<void>;
   onTaskAutoArchiveOlderThanDaysChange: (days: number) => Promise<void>;
+  onWorkspaceAutoImportEnabledChange?: (enabled: boolean) => Promise<void>;
+  onWorkspaceAutoImportRootsChange?: (roots: string[]) => Promise<void>;
+  onRunWorkspaceAutoImportScan?: () => Promise<void>;
   onCloseToTrayOnWindowsChange: (enabled: boolean) => Promise<void>;
   onKeepAwakeWhileRunningChange?: (enabled: boolean) => Promise<void>;
   onDesktopChromiumHardwareAccelerationChange?: (enabled: boolean) => Promise<void>;
@@ -176,10 +187,18 @@ export function GeneralSectionContent({
   // 部分 SSR 单测会用精简 props 直接渲染本组件，新增终端设置项后旧 helper 未必同步传值。
   // 这里把运行时缺省值兜到“继承系统 profile”，避免 undefined.trim() 把无关测试打断。
   const [localTerminalFontFamily, setLocalTerminalFontFamily] = useState(terminalFontFamily);
+  const [workspaceAutoImportRootsDraft, setWorkspaceAutoImportRootsDraft] = useState(
+    workspaceAutoImportRoots.join("\n"),
+  );
+  const [workspaceAutoImportScanPending, setWorkspaceAutoImportScanPending] = useState(false);
 
   useEffect(() => {
     setLocalTerminalFontFamily(terminalFontFamily);
   }, [terminalFontFamily]);
+
+  useEffect(() => {
+    setWorkspaceAutoImportRootsDraft(workspaceAutoImportRoots.join("\n"));
+  }, [workspaceAutoImportRoots]);
 
   const normalizedTerminalFontFamily = localTerminalFontFamily.trim();
   const isTerminalFontFamilyDirty = normalizedTerminalFontFamily !== terminalFontFamily;
@@ -850,6 +869,76 @@ export function GeneralSectionContent({
                 ))}
               </SelectContent>
             </Select>
+          }
+        />
+      </SettingsGroupCard>
+
+      <SettingsGroupCard>
+        <SettingsRow
+          label={intl.formatMessage({ id: "settings.workspaceAutoImport" })}
+          description={intl.formatMessage({
+            id: "settings.workspaceAutoImportDescription",
+          })}
+          control={
+            <Switch
+              checked={workspaceAutoImportEnabled}
+              onCheckedChange={(checked) => {
+                void onWorkspaceAutoImportEnabledChange(checked);
+              }}
+            />
+          }
+        />
+        <SettingsRow
+          label={intl.formatMessage({ id: "settings.workspaceAutoImportRoots" })}
+          description={intl.formatMessage({
+            id: "settings.workspaceAutoImportRootsDescription",
+          })}
+          control={
+            <div className="flex w-[320px] max-w-full flex-col gap-2">
+              <Textarea
+                aria-label={intl.formatMessage({ id: "settings.workspaceAutoImportRoots" })}
+                rows={2}
+                spellCheck={false}
+                disabled={!workspaceAutoImportEnabled}
+                className="min-w-0 font-mono text-ui-sm"
+                placeholder={intl.formatMessage({
+                  id: "settings.workspaceAutoImportRootsPlaceholder",
+                })}
+                value={workspaceAutoImportRootsDraft}
+                onChange={(event) => {
+                  setWorkspaceAutoImportRootsDraft(event.target.value);
+                }}
+                onBlur={() => {
+                  // 按行/逗号拆分提交；空列表表示回退 home 目录扫描。
+                  const roots = workspaceAutoImportRootsDraft
+                    .split(/[\n,]+/)
+                    .map((root) => root.trim())
+                    .filter((root) => root.length > 0);
+                  if (roots.join("\n") !== workspaceAutoImportRoots.join("\n")) {
+                    void onWorkspaceAutoImportRootsChange(roots);
+                  }
+                }}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="self-start"
+                disabled={
+                  !workspaceAutoImportEnabled ||
+                  workspaceAutoImportScanPending ||
+                  !onRunWorkspaceAutoImportScan
+                }
+                onClick={() => {
+                  setWorkspaceAutoImportScanPending(true);
+                  void onRunWorkspaceAutoImportScan?.().finally(() => {
+                    setWorkspaceAutoImportScanPending(false);
+                  });
+                }}
+              >
+                {intl.formatMessage({ id: "settings.workspaceAutoImportScanNow" })}
+              </Button>
+            </div>
           }
         />
       </SettingsGroupCard>

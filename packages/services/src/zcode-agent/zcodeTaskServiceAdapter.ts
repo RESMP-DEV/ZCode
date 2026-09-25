@@ -2,7 +2,7 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import {
   Emitter,
   Event,
@@ -130,6 +130,7 @@ import type {
   SessionMessageSendRequested,
 } from "#src/session/sessionMailbox.js";
 import { TaskIndexRepo } from "#src/session/taskIndexRepo.js";
+import { getConversationWorkspaceDir } from "#src/paths.js";
 import type {
   IZCodeAgentService,
   ZCodeAgentServiceEvent,
@@ -1102,13 +1103,13 @@ export function createZCodeTaskServiceAdapter(
 
   async function runWorkspaceTaskAutoArchive(
     scopes: Array<{ workspacePath: string; workspaceIdentity?: string }>,
-  ): Promise<void> {
+  ): Promise<number> {
     if (scopes.length === 0) {
-      return;
+      return 0;
     }
     const config = await readTaskAutoArchiveConfig();
     if (!config) {
-      return;
+      return 0;
     }
     const seenWorkspaceKeys = new Set<string>();
     let archivedCount = 0;
@@ -1139,6 +1140,7 @@ export function createZCodeTaskServiceAdapter(
         `按设置自动归档旧 task 数量=${archivedCount} olderThanDays=${config.olderThanDays}`,
       );
     }
+    return archivedCount;
   }
 
   async function resumeSnapshot(
@@ -2466,6 +2468,85 @@ export function createZCodeTaskServiceAdapter(
         emitWorkspaceTaskListChanged(task, task, "task_meta_changed");
       }
       return archivedTasks;
+    },
+
+    async runTaskAutoArchiveSweep(): Promise<{ archivedCount: number }> {
+      // 周期 sweep 与 grouped 视图读取共用同一条归档写入路径（runWorkspaceTaskAutoArchive），
+      // 保证事件广播与 overlay 收敛只有一份逻辑；scope 换成全库出现过的工作区。
+      const scopes = await taskIndexRepo.listWorkspaceScopes();
+      const archivedCount = await runWorkspaceTaskAutoArchive(scopes);
+      return { archivedCount };
+    },
+
+    async createAttentionDigestTask(params): Promise<{
+      taskId: string;
+      workspacePath: string;
+    }> {
+      const workspacePath = getConversationWorkspaceDir();
+      const language = params.locale?.trim().startsWith("zh") ? "简体中文" : "English";
+      const candidates = await taskIndexRepo.listAttentionCandidates({ limit: 12 });
+      const blocks: string[] = [];
+      for (const candidate of candidates) {
+        // 单候选快照失败只降级为 meta 摘要行，不让一个坏任务断掉整份摘要。
+        let tailText = "";
+        try {
+          const snapshot = await service.getTaskSnapshot({
+            taskId: candidate.taskId,
+            workspacePath: candidate.workspacePath,
+            workspaceIdentity: candidate.workspaceIdentity,
+            messageLimit: 8,
+          });
+          tailText = (snapshot?.messages ?? [])
+            .slice(-6)
+            .map((message) => {
+              const text = (message.content ?? "").slice(0, 600).trim();
+              return text.length > 0 ? `${message.role}: ${text}` : null;
+            })
+            .filter((line): line is string => line !== null)
+            .join("\n");
+        } catch (error) {
+          logger.warn(undefined, `待办摘要候选快照读取失败 taskId=${candidate.taskId}`, error);
+        }
+        const status = candidate.pendingInteraction
+          ? `awaiting ${candidate.pendingInteraction.kind}${candidate.pendingInteraction.toolName ? ` (${candidate.pendingInteraction.toolName})` : ""}`
+          : candidate.status === "error"
+            ? "error"
+            : typeof candidate.unreadAt === "number"
+              ? "unread result"
+              : "running";
+        blocks.push(
+          [
+            `<candidate workspace="${basename(candidate.workspacePath)}" task="${candidate.title.replace(/"/g, "'")}" status="${status}" updatedAt="${new Date(candidate.updatedAt).toISOString()}">`,
+            tailText || "(No recent message tail available)",
+            "</candidate>",
+          ].join("\n"),
+        );
+      }
+      const content = [
+        "<task>",
+        `You are the attention digest agent. Review the candidates below and produce the prioritized list of what still needs to be done. Write the final answer in ${language}.`,
+        "</task>",
+        "<context_data>",
+        blocks.length > 0 ? blocks.join("\n") : "(No attention candidates found.)",
+        "</context_data>",
+        "<instructions>",
+        "1. For each candidate decide whether it needs user action (answer a permission/question, handle an error) or is only an unread completion notice.",
+        "2. Output a sorted list: awaiting interactions first, then errors, then unread results worth reviewing, then in-progress work. One line per item: `workspace — task — what needs to be done (one sentence)`.",
+        "3. Leave out candidates that need nothing and say why in one closing sentence.",
+        "4. If there are no candidates, state plainly that nothing needs attention right now.",
+        "</instructions>",
+      ].join("\n");
+      const task = await service.createTask({
+        workspacePath,
+        // 与 bots 派发同款 v4 draft 创建，保证 sendPrompt 走 v4 sendText 首发路径。
+        v4Create: true,
+      });
+      await service.sendPrompt({
+        taskId: task.taskId,
+        traceId: generateTraceId(task.taskId),
+        content,
+      });
+      return { taskId: task.taskId, workspacePath };
     },
 
     async archiveWorkspaceTasks(params): Promise<ZCodeTaskMeta[]> {

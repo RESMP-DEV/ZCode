@@ -1505,6 +1505,7 @@ const zhCN: Record<string, string> = {
   "workspaceSidebar.conversationsSection": "任务",
   "workspaceSidebar.projectsSection": "项目",
   "workspaceSidebar.newConversation": "新建任务",
+  "workspaceSidebar.attentionDigest": "汇总待办事项",
   "workspaceSidebar.reorderSection": "移动{section}分区",
   "workspaceSidebar.addProject": "添加项目",
   "workspaceSidebar.noConversations": "还没有任务",
@@ -2130,6 +2131,16 @@ const zhCN: Record<string, string> = {
   "settings.taskAutoArchiveDays.option.7": "7 天后归档",
   "settings.taskAutoArchiveDays.option.14": "14 天后归档",
   "settings.taskAutoArchiveDays.option.30": "30 天后归档",
+  "settings.workspaceAutoImport": "自动导入项目到侧栏",
+  "settings.workspaceAutoImportDescription":
+    "启动后按下方根目录扫描（两层深度、仅 git 仓库），把缺失的项目补进侧栏，不激活、不打扰。",
+  "settings.workspaceAutoImportRoots": "扫描根目录",
+  "settings.workspaceAutoImportRootsDescription": "每行一个路径；留空表示扫描用户主目录。",
+  "settings.workspaceAutoImportRootsPlaceholder": "留空 = 用户主目录",
+  "settings.workspaceAutoImportScanNow": "立即扫描",
+  "settings.workspaceAutoImportScanResult":
+    "扫描完成：新增 {imported} 个项目（共发现 {scanned} 个仓库）。",
+  "settings.workspaceAutoImportScanFailed": "扫描失败：{error}",
   "settings.dataBaseDir": "数据存储路径",
   "settings.dataBaseDirDescription":
     "应用数据的根目录（默认为用户主目录），修改后会将现有数据复制到新位置。路径后缀 .zcode/v2 不可更改。",
