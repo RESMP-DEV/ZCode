@@ -440,7 +440,17 @@ export function flattenWorkspaceFileTreeRows(params: {
         depth: child.depth - depthOffset,
       });
       const representedPaths = compacted.compactedPaths ?? [compacted.node.path];
-      const expanded = representedPaths.some((path) => params.expandedPaths.has(path));
+      // 已加载且确无子项（含 Git deleted 补全行）的目录一律按收起态呈现：expandedPaths
+      // 保留用户意图不改写，目录重新出现子项时随投影自然恢复展开；加载中或读取出错
+      // 不收起，避免闪烁和掩盖错误（specs/workspace-file-tree-empty-directory.md）。
+      const isEmptyLoadedDirectory =
+        compacted.node.type === "directory" &&
+        params.loadedDirectoryPaths.has(compacted.node.path) &&
+        !params.loadingDirectoryPaths.has(compacted.node.path) &&
+        !params.errorByDirectory.has(compacted.node.path) &&
+        (params.childrenByDirectory.get(compacted.node.path)?.length ?? 0) === 0;
+      const expanded =
+        !isEmptyLoadedDirectory && representedPaths.some((path) => params.expandedPaths.has(path));
       rows.push({
         ...compacted.node,
         expanded,
