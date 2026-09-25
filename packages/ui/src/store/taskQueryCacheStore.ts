@@ -34,6 +34,7 @@ interface TaskQueryCacheState {
     total: number;
     hasMore: boolean;
     unreadTaskKeys?: TaskEntityKey[];
+    hasPendingAction?: boolean;
     partial?: boolean;
     loadingShardKeys?: string[];
     failedShardKeys?: string[];
@@ -46,6 +47,7 @@ interface TaskQueryCacheState {
       total: number;
       hasMore: boolean;
       unreadTaskKeys?: TaskEntityKey[];
+      hasPendingAction?: boolean;
       partial?: boolean;
       loadingShardKeys?: string[];
       failedShardKeys?: string[];
@@ -87,6 +89,7 @@ function buildCachedTaskListResult(params: {
   descriptor: TaskListCacheDescriptor;
   taskKeys: TaskEntityKey[];
   unreadTaskKeys?: TaskEntityKey[];
+  hasPendingAction?: boolean;
   searchSnippetsByTaskKey?: Record<TaskEntityKey, string>;
   searchSnippetListsByTaskKey?: Record<TaskEntityKey, string[]>;
   total: number;
@@ -99,6 +102,7 @@ function buildCachedTaskListResult(params: {
   return {
     taskKeys: params.taskKeys,
     unreadTaskKeys: params.unreadTaskKeys,
+    hasPendingAction: params.hasPendingAction,
     searchSnippetsByTaskKey: params.searchSnippetsByTaskKey,
     searchSnippetListsByTaskKey: params.searchSnippetListsByTaskKey,
     total: params.total,
@@ -264,6 +268,7 @@ function isQueryResultEquivalent(params: {
   previousResult: CachedTaskListResult | undefined;
   taskKeys: TaskEntityKey[];
   unreadTaskKeys?: TaskEntityKey[];
+  hasPendingAction?: boolean;
   searchSnippetsByTaskKey?: Record<TaskEntityKey, string>;
   searchSnippetListsByTaskKey?: Record<TaskEntityKey, string[]>;
   total: number;
@@ -281,6 +286,11 @@ function isQueryResultEquivalent(params: {
     previous.hasMore !== params.hasMore ||
     previous.partial !== params.partial
   ) {
+    return false;
+  }
+  // hasPendingAction 只在分页前完整结果上计算；仅翻转它也必须发布新结果，
+  // 否则收起行/分区头的琥珀点会停留在旧值。
+  if ((previous.hasPendingAction ?? false) !== (params.hasPendingAction ?? false)) {
     return false;
   }
   if (
@@ -357,6 +367,7 @@ export const useTaskQueryCacheStore = create<TaskQueryCacheState>()((set) => ({
     total,
     hasMore,
     unreadTaskKeys,
+    hasPendingAction,
     partial,
     loadingShardKeys,
     failedShardKeys,
@@ -419,6 +430,7 @@ export const useTaskQueryCacheStore = create<TaskQueryCacheState>()((set) => ({
         descriptor,
         taskKeys,
         unreadTaskKeys,
+        hasPendingAction,
         searchSnippetsByTaskKey:
           Object.keys(searchSnippetsByTaskKey).length > 0 ? searchSnippetsByTaskKey : undefined,
         searchSnippetListsByTaskKey:
@@ -447,6 +459,7 @@ export const useTaskQueryCacheStore = create<TaskQueryCacheState>()((set) => ({
           previousResult: state.resultsByQueryKey[queryKey],
           taskKeys,
           unreadTaskKeys: resultParams.unreadTaskKeys,
+          hasPendingAction: resultParams.hasPendingAction,
           searchSnippetsByTaskKey: resultParams.searchSnippetsByTaskKey,
           searchSnippetListsByTaskKey: resultParams.searchSnippetListsByTaskKey,
           total: resultParams.total,
@@ -546,6 +559,7 @@ export const useTaskQueryCacheStore = create<TaskQueryCacheState>()((set) => ({
           descriptor: entry.descriptor,
           taskKeys,
           unreadTaskKeys: entry.unreadTaskKeys,
+          hasPendingAction: entry.hasPendingAction,
           searchSnippetsByTaskKey:
             Object.keys(searchSnippetsByTaskKey).length > 0 ? searchSnippetsByTaskKey : undefined,
           searchSnippetListsByTaskKey:
@@ -571,6 +585,7 @@ export const useTaskQueryCacheStore = create<TaskQueryCacheState>()((set) => ({
             previousResult,
             taskKeys,
             unreadTaskKeys: resultParams.unreadTaskKeys,
+            hasPendingAction: resultParams.hasPendingAction,
             searchSnippetsByTaskKey: resultParams.searchSnippetsByTaskKey,
             searchSnippetListsByTaskKey: resultParams.searchSnippetListsByTaskKey,
             total: resultParams.total,
