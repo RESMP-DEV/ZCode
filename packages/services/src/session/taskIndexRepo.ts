@@ -1186,7 +1186,13 @@ export class TaskIndexRepo {
         workspacePath: row.workspace_path,
         ...(workspaceIdentity ? { workspaceIdentity } : {}),
         taskId,
-        patch: { pinned: params.pinned },
+        // 钉住语义 = 保留并可见：侧栏 Pinned 区只显示 pinned=1 AND archived=0，
+        // 对归档行钉住必须同时解除归档，否则「值得保留的决策记录」被钉进不可见区。
+        // 解除钉住不动归档状态——unpin 只是放开后续清理提名，不改变当前可见性。
+        patch: {
+          pinned: params.pinned,
+          ...(params.pinned && row.archived === 1 ? { archived: false } : {}),
+        },
       });
       updated.push({ taskId, pinned: params.pinned, meta });
     }

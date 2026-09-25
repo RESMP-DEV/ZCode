@@ -206,6 +206,19 @@ test("setPinned 钉住/解除钉住并影响下一轮 plan 候选", async () => 
       ],
     );
 
+    // 钉住已归档的行：必须同时解除归档（侧栏 Pinned 区只显示 pinned 且未归档）。
+    await repo.updateTaskState({ workspacePath: "/w", taskId: "s-2", patch: { archived: true } });
+    const pinArchived = await setPinnedSessionSweep(repo, { taskIds: ["s-2"], pinned: true });
+    assert.deepEqual(pinArchived.updated, [{ taskId: "s-2", pinned: true }]);
+    // 未归档 + 钉住 + 终态过期 → 出现在钉住侧候选；不在删除候选。
+    const afterArchivedPin = await planSessionSweep(repo, {});
+    assert.ok(!afterArchivedPin.candidates.some((meta) => meta.taskId === "s-2"));
+    assert.ok(afterArchivedPin.pinnedCandidates.some((meta) => meta.taskId === "s-2"));
+    // 还原状态，不影响后续断言：解除钉住并重新归档。
+    await setPinnedSessionSweep(repo, { taskIds: ["s-2"], pinned: false });
+    await repo.updateTaskState({ workspacePath: "/w", taskId: "s-2", patch: { archived: true } });
+    await repo.updateTaskState({ workspacePath: "/w", taskId: "s-2", patch: { archived: false } });
+
     // 解除钉住：重新回到删除候选（守卫其余部分仍由 execute 复核）。
     const unpin = await setPinnedSessionSweep(repo, { taskIds: ["s-1"], pinned: false });
     assert.deepEqual(unpin.updated, [{ taskId: "s-1", pinned: false }]);
