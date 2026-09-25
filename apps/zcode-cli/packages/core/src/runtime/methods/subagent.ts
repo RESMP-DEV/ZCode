@@ -328,6 +328,11 @@ export function createDefaultSubagentPort(
           mcpPort: childMcpAccess.port,
           skillPort: childSkillPort,
           artifactStore: deps.artifactStore,
+          // session-sweeper 以子代理形态派发：会话清理端口必须转发给 child，
+          // 否则 includeSessionSweep 的端口在场判定不成立，SessionSweep* 工具
+          // 在 child 内不注册（agent 只能看到能力缺失）。automation/offPeak 在
+          // 注册门上显式排除 child；sweep 是反例——child 正是它的目标形态。
+          sessionSweepPort: deps.sessionSweepPort,
           appVersion: this.appVersion,
           eventSink: {
             onSessionEvent: async (event) => {
