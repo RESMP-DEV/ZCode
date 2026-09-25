@@ -1,6 +1,6 @@
 # Workspace 自动导入、持续待办提醒、待办摘要与 72h 自动归档
 
-状态：已实现（2026-09-24，验证：typecheck/lint/architecture 全绿，services 24/24 测试通过，其中 14 条为本次新增；2026-09-25 增补：任务分区头琥珀点 + pendingInteraction 全量 rollup）。本文是四项行为的唯一 spec，覆盖产品规则、状态所有者、接口与验收场景。
+状态：已实现（2026-09-24，验证：typecheck/lint/architecture 全绿，services 24/24 测试通过，其中 14 条为本次新增；2026-09-25 增补：任务分区头琥珀点 + pendingInteraction 全量 rollup；2026-09-25 review 修正：SQL 优先级排序、error 终态清理、首帧基线对账、摘要 existing-only 快照、自动导入排除既有路径、本地 host 扫描、角标回退边界、琥珀点可读名称）。本文是四项行为的唯一 spec，覆盖产品规则、状态所有者、接口与验收场景。
 
 ## 背景与问题
 
@@ -14,7 +14,7 @@
 产品规则：
 
 - 设置 `workspaceAutoImportEnabled`（默认 true）+ `workspaceAutoImportRoots: string[]`（默认 `[]`，表示使用 home 目录）。扫描深度固定 2 层，只认包含 `.git` 的目录，跳过隐藏目录、`node_modules`、`Library`、`Applications`、`.Trash` 等噪声目录。
-- 只新增 tab，永不移除、永不激活、永不抢占焦点；新导入的 tab 追加到列表尾部（`ensureWorkspaceTab` 新增 `append` 选项），上限 24 个/次。
+- 只新增 tab，永不移除、永不激活、永不抢占焦点；新导入的 tab 追加到列表尾部（`ensureWorkspaceTab` 新增 `append` 选项），上限 24 个/次。已在侧栏的路径经 `excludePaths` 在扫描侧于计数前排除，不占候选上限（否则固定窗口会被既有仓库填满，扫描顺序靠后的新仓库永远轮不到导入）；设置页「立即扫描」固定使用本地 host services，远端 workspace 激活时不得把远端路径 ensure 成本地 tab。
 - 触发时机：Renderer 完成 tab 恢复（`useTabPersistence` 的 initial restore 完成）后执行一次；设置页提供手动「立即扫描」。
 
 所有者与事件顺序：
@@ -51,21 +51,28 @@ CLI sessions-index 帧
 清除：交互解决/输入后的下一帧 summary/snapshot 携带空 pendingInteraction → 同一写入路径清空。
 ```
 
-快照路径：`buildMetaFromSnapshot` / `buildBaselineMetaFromSummary` 同步映射，`syncTaskMeta` 全量覆盖（无保留分支），`applyAgentPatch` 采用 `lastError` 同款「键缺席 = 保留，显式 undefined = 清除」语义。
+快照路径：`buildMetaFromSnapshot` / `buildBaselineMetaFromSummary` 同步映射；`syncTaskMeta` 与 `applyAgentPatch` 均采用「键缺席 = 保留，显式 undefined = 清除」语义（snapshot 同步不带 pendingInteraction 键时不得冲掉 sessions-index 路径刚持久化的阻塞痕迹）。
+
+Stale 防护（2026-09-25 review 修正）：
+
+- 终态清理覆盖两个分支：`completed` 与 `error` 的 terminal patch 都显式携带 `pendingInteraction: undefined`，防止报错退出的任务永久持有阻塞摘要、挡住自动归档。
+- 首帧基线对账：`seedMissingRowsFromInitialSnapshot` 对已存在行用落库值与 summary 对账（共用 `pendingInteractionChanged` 谓词），不一致即 patch（显式 undefined 清除，不带 updatedAt、不改变排序）。否则 app 退出期间已消失的交互永远点着琥珀点——后续 diff 只比较内存 summaries 基线，不会发现落库值已 stale。
+- 角标回退边界：任务行角标只在 sidecar 整体缺席时回退持久化 `meta.pendingInteraction`；sidecar 在场而 `pendingInteractions` 为空是 sessions-index 权威的「当前无阻塞」，持久值不得覆盖。
 
 ## 行为 3：待办摘要 agent 任务
 
 产品规则：
 
 - 入口在侧栏 Conversations 区头部（图标按钮 + tooltip）。点击后由 host 收集候选任务，在 conversation workspace（`~/.zcode/workspace/default`）创建一个真实 agent 任务，prompt 内嵌候选任务的最近消息尾部，由 agent 产出「按优先级排列的待办清单」，按当前 locale 输出。
-- 候选集（跨全部 workspace，上限 12）：`pendingInteraction` 非空 > `task_status='error'` > `unreadAt` 非空 > 近 72h 仍在 running 且有更新。每任务取最近 8 条消息。
+- 候选集（跨全部 workspace，上限 12）：`pendingInteraction` 非空 > `task_status='error'` > `unreadAt` 非空 > 近 72h 仍在 running 且有更新。每任务取最近 8 条消息。优先级排序进 SQL（ORDER BY CASE），recency LIMIT 窗口不得把更旧的阻塞行挤出候选集。
 - 结果是普通任务：可读、可续聊追问，无新协议。
 
 ```
 Renderer 侧栏 action
   → services.zcodeTaskService.createAttentionDigestTask({ locale })
-  → taskIndexRepo.listAttentionCandidates (只读查询)
-  → adapter.getTaskSnapshot(messageLimit:8) 逐任务取尾部
+  → taskIndexRepo.listAttentionCandidates (只读查询, 优先级 SQL 排序)
+  → adapter readSession(runtimePolicy: "existing-only", messageLimit: 8) + snapshotToZCode 投影逐任务取尾部
+    （只读现有 runtime，不得为休眠候选拉起 agent / 制造第二个生命周期写入者）
   → createTask({ workspacePath: conversationWorkspace, v4Create: true }) + sendPrompt
   → Renderer 激活 conversation workspace tab + 该任务
 ```
