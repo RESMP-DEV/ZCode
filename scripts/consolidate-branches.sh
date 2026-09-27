@@ -23,6 +23,9 @@ candidates=()
 for ref in $(git for-each-ref --format='%(refname:short)' refs/remotes/"$REMOTE"/); do
   branch="${ref#$REMOTE/}"
   [ "$branch" = "HEAD" ] && continue
+  # 集成分支自身的远端 ref 不是候选：本地 ref 落后由基准选择处理，
+  # 同 tip 的 no-op merge 不应计为「已合并」。
+  [ "$branch" = "$INTEGRATION_BRANCH" ] && continue
   ahead=$(git rev-list --count "$INTEGRATION_BRANCH..$ref" 2>/dev/null) || continue
   if [ "$ahead" -gt 0 ] 2>/dev/null; then
     candidates+=("$branch")
@@ -73,8 +76,10 @@ for b in ${candidates[@]+"${candidates[@]}"}; do
   ref="refs/remotes/$REMOTE/$b"
   if git merge --no-ff "$ref" -m "merge: consolidate $b into $INTEGRATION_BRANCH" >/dev/null 2>&1; then
     if pnpm typecheck >/dev/null 2>&1; then
-      last_good=$(git rev-parse HEAD)
-      merged+=("$b")
+      if [ "$(git rev-parse HEAD)" != "$last_good" ]; then
+        last_good=$(git rev-parse HEAD)
+        merged+=("$b")
+      fi
     else
       # 该分支合并破坏 typecheck：回退到上一个绿色点，只跳过这一支。
       git reset --hard "$last_good" >/dev/null 2>&1
