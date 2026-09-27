@@ -1,0 +1,36 @@
+# Automation 执行轮的自清理（scoped CronDelete）
+
+## 行为
+
+定时 automation 执行轮（cron dispatch turn）可以在本轮内调用 `CronDelete` 删除**触发本轮的那一个 automation**，作为任务永久完成后的内置自清理路径（例如 pr-loop 驱动的 PR 已合并、监听已无意义）。删除其他 automation 依旧被拒绝；`CronCreate` / `CronUpdate` 在执行轮依旧不可见，防止递归修改任务定义。
+
+## 状态所有者
+
+- automation 定义与生命周期归 `automationService` / `automationRepo`（不变）。
+- 「本轮是哪个 automation 派发的」这一事实由 host admission 拥有（`StartPromptTurnParams.automationId` → `RegularTurnLoopState.automationId`），只认本轮显式身份，不从持久 task metadata 推断；本变更仅把该身份沿 `ExecuteToolsOptions → ToolExecuteOptions → ToolExecutionContext.currentTurnAutomationId` 投影到工具执行边界。
+
+## 边界（三层）
+
+1. **可见性**：执行轮的 turn-scoped denylist 只合并 `CronCreate` / `CronUpdate`；`CronList`（只读）与 `CronDelete`（受限）保持可见。
+2. **执行边界最终校验**：`CronDelete` handler 在 `automationTurn === true` 时要求 `input.id === currentTurnAutomationId`，否则 `PermissionDenied`；身份缺失（旧 host 只带 denylist 签名、无 automationId）时保守拒绝（fail closed）。
+3. **自识别**：`CronList` 输出为匹配 `currentTurnAutomationId` 的条目附加 `isCurrentTurnAutomation: true`（仅 CronList 投影，additive optional 字段），让执行轮无需标题匹配即可找到自己。
+
+## 事件顺序与幂等
+
+- 执行轮中途删除自己只影响**未来的派发**（scheduler 拥有 nextRunAt）；本轮照常运行到结束，不中断、不重放。
+- 删除是幂等的（重复删除返回 `deleted: false`）。
+
+## 失败语义
+
+| 场景 | 行为 |
+| --- | --- |
+| 执行轮删除非自身 automation | `PermissionDenied`，错误信息指明只能自清理、其他删除需常规交互轮 |
+| 执行轮身份缺失时任何 CronDelete | `PermissionDenied`（fail closed） |
+| 非执行轮（常规交互轮） | 行为不变：任意 id 可删，走正常审批 |
+
+## 验收场景
+
+1. automation 轮内 `CronList` 恰好一条 `isCurrentTurnAutomation: true`，等于触发 id。
+2. automation 轮内删除自身 → 成功，后续不再派发；删除其他 id → 拒绝。
+3. automation 轮内 `CronCreate` / `CronUpdate` 仍不可见（provider 请求边界隐藏）。
+4. 常规交互轮 `CronDelete` / `CronList` 行为与字段完全不变（输出无 `isCurrentTurnAutomation`）。

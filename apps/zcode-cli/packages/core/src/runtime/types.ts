@@ -730,6 +730,8 @@ export interface PermissionDecisionResult {
 
 export interface ExecuteToolsOptions {
   automationTurn?: boolean;
+  /** 触发本轮的 automation id（host admission 显式传入）；CronDelete 自清理的范围校验事实。 */
+  currentTurnAutomationId?: string;
   offPeakTurn?: boolean;
   signal?: AbortSignal;
   traceContext?: TraceContext;

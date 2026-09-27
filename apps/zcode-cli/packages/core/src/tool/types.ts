@@ -137,6 +137,8 @@ export interface ToolExecutionContext {
   telemetry?: ToolExecutionSpanWriter;
   /** 当前工具调用是否属于 automation 派发轮；写工具 handler 用它做最终权限校验。 */
   automationTurn?: boolean;
+  /** 触发本轮的 automation id（executor 传入的本轮事实）；CronDelete 只放行等于它的自清理删除。 */
+  currentTurnAutomationId?: string;
   /** 当前工具调用是否属于闲时任务派发轮；OffPeakCreate handler 用它做最终拒绝。 */
   offPeakTurn?: boolean;
   traceContext?: TraceContext;

@@ -38,7 +38,7 @@ const CRON_MODEL_BYTES = 32_000;
 
 function assertNotAutomationTurn(
   context: ToolExecutionContext,
-  toolName: "CronCreate" | "CronUpdate" | "CronDelete",
+  toolName: "CronCreate" | "CronUpdate",
 ): void {
   if (!context.automationTurn) return;
   // provider tool denylist 只是可见性约束，旧入口或异常 provider 仍可能直接提交
@@ -50,6 +50,26 @@ function assertNotAutomationTurn(
       context: {
         toolCallId: context.toolCallId,
         toolName,
+      },
+      recoverable: false,
+      retryable: false,
+    },
+  );
+}
+
+// CronDelete 是唯一放行进 automation 执行轮的写工具：只能删除触发本轮的 automation
+// （自清理，如 pr-loop 在 PR 合并后收尾，避免空转 no-op 轮）。身份以 executor 传入的
+// 本轮事实为准；漏传身份（旧 host / 异常路径）时保守拒绝，绝不退化为允许任意删除。
+function assertCronDeleteAllowed(context: ToolExecutionContext, id: string): void {
+  if (!context.automationTurn) return;
+  if (context.currentTurnAutomationId && context.currentTurnAutomationId === id) return;
+  throw createCoreError(
+    CoreErrorType.PermissionDenied,
+    "CronDelete during a scheduled automation run may only delete the automation that triggered this run (self-cleanup). Delete other automations from a regular interactive turn.",
+    {
+      context: {
+        toolCallId: context.toolCallId,
+        toolName: "CronDelete",
       },
       recoverable: false,
       retryable: false,
@@ -119,7 +139,13 @@ const cronListHandler: ToolHandler = async (input, context) => {
 
   const automations = await context.automationPort.list();
   return {
-    automations: automations.map(toModelAutomation),
+    automations: automations.map((automation) => ({
+      ...toModelAutomation(automation),
+      // automation 执行轮内标记触发本轮的条目，供模型免标题匹配地做 scoped CronDelete 自清理。
+      ...(context.currentTurnAutomationId === automation.automationId
+        ? { isCurrentTurnAutomation: true }
+        : {}),
+    })),
   } satisfies CronListOutput;
 };
 
@@ -136,8 +162,8 @@ const cronUpdateHandler: ToolHandler = async (input, context) => {
 };
 
 const cronDeleteHandler: ToolHandler = async (input, context) => {
-  assertNotAutomationTurn(context, "CronDelete");
   const parsed = CronDeleteInputSchema.parse(input) as CronDeleteInput;
+  assertCronDeleteAllowed(context, parsed.id);
   assertAutomationPort(context, "CronDelete");
 
   const deleted = await context.automationPort.delete(parsed);
@@ -211,6 +237,7 @@ export const cronCreateToolEntry: ToolEntry = {
       "Do not include workspace paths or identities in the input; the current session workspace is used.",
       "Always set title and preserve the user's natural-language schedule phrase verbatim in it. The title may be concise, but must not omit timing such as '每20分钟', '每天早上9点', or 'every Friday'.",
       "Write prompt as a complete instruction that can run later without relying on unstated conversation context.",
+      "For recurring work with a permanent finish line (for example driving a PR through reviews until it merges), instruct the scheduled run to delete this automation itself with CronDelete once the work is permanently finished. Self-deleting the triggering automation is the only automation management a scheduled run may perform, and it prevents the loop from firing no-op turns forever.",
       "Write the final work directly in prompt. Never ask the scheduled run to create, schedule, or configure another automation, and never ask it to call CronCreate.",
     ],
     readOnly: false,
@@ -347,7 +374,13 @@ export const cronDeleteToolEntry: ToolEntry = {
   capability: "Delete a scheduled automation from the current workspace",
   metadata: {
     name: "CronDelete",
-    description: "Delete a scheduled automation from the current workspace by automation id.",
+    description:
+      "Delete a scheduled automation from the current workspace by automation id. Inside a scheduled automation run, only the automation that triggered the current run may be deleted (self-cleanup once its work is permanently finished).",
+    modelInstructions: [
+      "Use CronList first when the automation id is not already known. Never guess an automation id.",
+      "Inside a scheduled automation run, CronList marks the entry whose isCurrentTurnAutomation is true: that is the automation that triggered this run. When its work is permanently finished (for example the monitored PR merged or the user cancelled the loop), CronDelete that id so the schedule stops firing; this self-cleanup is the built-in end-of-life path for loop-shaped automations.",
+      "Deleting a different automation during a scheduled run is rejected. Report to the user and let them delete it from a regular interactive turn instead.",
+    ],
     readOnly: false,
     destructive: true,
     concurrentSafe: false,
