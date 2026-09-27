@@ -6,7 +6,12 @@
 # 退出码：0 = 正常结束（无论是否有合并发生）；1 = 基础设施故障（worktree/push 失败）。
 set -u
 
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# REPO_ROOT 可被 ZCODE_REPO_ROOT 覆盖：让 cron 从 /tmp 物化最新版脚本也能正确寻址仓库。
+if [ -n "${ZCODE_REPO_ROOT:-}" ]; then
+  REPO_ROOT="$ZCODE_REPO_ROOT"
+else
+  REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+fi
 WORKTREE="/tmp/zcode-consolidate"
 INTEGRATION_BRANCH="alphaheng/main"
 REMOTE="resmp"
