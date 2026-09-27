@@ -20,7 +20,10 @@ export type PendingStreamRecoveryRequest = ModelStreamRecoveryStatus;
 
 export const RAPID_REFILL_TOOL_TURN_THRESHOLD = 3;
 export const MAX_CONSECUTIVE_RAPID_REFILLS = 3;
-export const AUTOMATION_MUTATION_TOOL_NAMES = ["CronCreate", "CronUpdate", "CronDelete"] as const;
+// 只列「任务定义写工具」；CronDelete 不在本表（执行轮自清理路径可见，范围校验在
+// CronDelete handler）。下方 every() 兜底对旧 host（隐藏三个）与新代码（隐藏两个）
+// 都成立：旧 denylist 是新列表的超集。
+export const AUTOMATION_MUTATION_TOOL_NAMES = ["CronCreate", "CronUpdate"] as const;
 const AUTOMATION_QUERY_ID_PREFIX = "automation-";
 /**
  * 闲时派发轮隐藏的工具；OffPeakList 只读保留。

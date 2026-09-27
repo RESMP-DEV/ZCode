@@ -305,9 +305,15 @@ export const CronUpdateOutputSchema = z
 export type CronUpdateOutput = z.infer<typeof CronUpdateOutputSchema>;
 export const CronUpdateOutputJsonSchema = toToolJsonSchema(CronUpdateOutputSchema);
 
+// automation 执行轮内为触发本轮的条目附加 isCurrentTurnAutomation（仅 CronList 投影，
+// additive optional），让执行轮免标题匹配地定位自己，再做 scoped CronDelete 自清理；
+// Create/Update/Delete 的输出不携带该字段。
+const CronListEntrySchema = CronAutomationSchema.extend({
+  isCurrentTurnAutomation: z.boolean().optional(),
+});
 export const CronListOutputSchema = z
   .object({
-    automations: z.array(CronAutomationSchema),
+    automations: z.array(CronListEntrySchema),
   })
   .strict();
 export type CronListOutput = z.infer<typeof CronListOutputSchema>;

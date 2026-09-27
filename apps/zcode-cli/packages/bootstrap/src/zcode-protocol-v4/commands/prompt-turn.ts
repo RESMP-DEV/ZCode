@@ -273,7 +273,10 @@ export function turnBackgroundAttributionOf(params: {
 }
 
 const AUTOMATION_INPUT_ID_PREFIX = "automation-";
-const AUTOMATION_MUTATION_TOOL_NAMES = ["CronCreate", "CronUpdate", "CronDelete"] as const;
+// 与 services/automationToolPolicy、core/turn-loop-state 同值：只隐藏任务定义写工具。
+// CronDelete 刻意可见——执行轮可删除触发本轮的 automation 做自清理，范围校验在
+// CronDelete handler（只放行 currentTurnAutomationId）。
+const AUTOMATION_MUTATION_TOOL_NAMES = ["CronCreate", "CronUpdate"] as const;
 // 独立常量，绝不并入 AUTOMATION_MUTATION_TOOL_NAMES（cron 轮放行 OffPeakCreate）。
 // 与 core turn-loop-state 同值——闲时轮同时隐藏 SendMessage / Workflow（两者会在本轮
 // modelExecution 之外重启子 Agent）。

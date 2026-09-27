@@ -222,7 +222,9 @@ function buildTurnDisallowedTools(state: RegularTurnLoopState): Set<string> | nu
   const tools = new Set(state.toolDisallowlist ?? []);
   if (isAutomationMutationRestrictedTurn(state)) {
     // 定时任务执行轮只应运行任务 prompt，不能反过来管理自己的定义。
-    // 保留 CronList 供只读查询；所有 mutation 在 provider 请求边界统一隐藏。
+    // 保留 CronList 供只读查询；CronCreate/CronUpdate 在 provider 请求边界隐藏。
+    // CronDelete 同样保留可见：执行轮删除触发本轮的 automation（自清理）合法，
+    // 范围校验（只放行 currentTurnAutomationId）由 CronDelete handler 执行边界负责。
     for (const toolName of AUTOMATION_MUTATION_TOOL_NAMES) {
       tools.add(toolName);
     }

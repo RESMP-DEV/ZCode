@@ -288,6 +288,7 @@ async function executeDuringStream(
     subagentModelOverride: state.subagentModelOverride,
     model: state.model,
     automationTurn: isAutomationMutationRestrictedTurn(state),
+    currentTurnAutomationId: state.automationId,
     offPeakTurn: isOffPeakCreateRestrictedTurn(state),
     signal: options.abortSignal,
     traceContext: options.traceContext,
