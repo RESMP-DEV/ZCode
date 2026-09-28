@@ -1064,7 +1064,10 @@ export class TaskIndexRepo {
     "pinned = 0",
     "unread_at IS NULL",
     "(archived = 1 OR task_status IN ('completed', 'error'))",
-    "cron_automation_id IS NULL",
+    // cron 拥有权按「归属 automation 是否仍存活」判定：孤儿 run-transcript
+    // （automation 已删除/停用）与普通终态会话同样可清理，否则每次派发留下的
+    // 会话永远无法被 sweep，成为永久泄漏。
+    "(cron_automation_id IS NULL OR NOT EXISTS (SELECT 1 FROM automations a WHERE a.automation_id = tasks.cron_automation_id AND a.enabled = 1 AND a.lifecycle_status = 'active'))",
     "off_peak_task_id IS NULL",
     "updated_at < ?",
   ];
@@ -1075,7 +1078,10 @@ export class TaskIndexRepo {
     "pinned = 1",
     "unread_at IS NULL",
     "(archived = 1 OR task_status IN ('completed', 'error'))",
-    "cron_automation_id IS NULL",
+    // cron 拥有权按「归属 automation 是否仍存活」判定：孤儿 run-transcript
+    // （automation 已删除/停用）与普通终态会话同样可清理，否则每次派发留下的
+    // 会话永远无法被 sweep，成为永久泄漏。
+    "(cron_automation_id IS NULL OR NOT EXISTS (SELECT 1 FROM automations a WHERE a.automation_id = tasks.cron_automation_id AND a.enabled = 1 AND a.lifecycle_status = 'active'))",
     "off_peak_task_id IS NULL",
     "updated_at < ?",
   ];
@@ -1086,7 +1092,16 @@ export class TaskIndexRepo {
     if (row.archived !== 1 && row.task_status !== "completed" && row.task_status !== "error") {
       return false;
     }
-    if (row.cron_automation_id != null || row.off_peak_task_id != null) return false;
+    if (row.off_peak_task_id != null) return false;
+    // 事务内复核与 SQL 谓词同语义：cron 孤儿可清理，存活 automation 的 run 受保护。
+    if (row.cron_automation_id != null) {
+      const live = this.getDatabase()
+        .prepare(
+          `SELECT 1 FROM automations WHERE automation_id = ? AND enabled = 1 AND lifecycle_status = 'active' LIMIT 1`,
+        )
+        .get(row.cron_automation_id);
+      if (live) return false;
+    }
     if (row.updated_at >= cutoff) return false;
     // meta 仍带阻塞交互 = 还有等用户的动作，一律不删。
     return rowToMeta(row).pendingInteraction == null;
@@ -1098,7 +1113,7 @@ export class TaskIndexRepo {
     limit?: number;
   }): Promise<Array<ZCodeTaskMeta & { archived: boolean; preview: string }>> {
     await this.ensureReady();
-    const minAgeDays = Math.max(1, Math.floor(params.minAgeDays ?? 14));
+    const minAgeDays = Math.max(1, Math.floor(params.minAgeDays ?? 3));
     const limit = Math.max(1, Math.floor(params.limit ?? 60));
     const cutoff = Date.now() - minAgeDays * 24 * 60 * 60 * 1000;
     const rows = this.getDatabase()
@@ -1133,7 +1148,7 @@ export class TaskIndexRepo {
     limit?: number;
   }): Promise<Array<ZCodeTaskMeta & { archived: boolean; preview: string }>> {
     await this.ensureReady();
-    const minAgeDays = Math.max(1, Math.floor(params.minAgeDays ?? 14));
+    const minAgeDays = Math.max(1, Math.floor(params.minAgeDays ?? 3));
     const limit = Math.max(1, Math.floor(params.limit ?? 30));
     const cutoff = Date.now() - minAgeDays * 24 * 60 * 60 * 1000;
     const rows = this.getDatabase()
@@ -1220,7 +1235,7 @@ export class TaskIndexRepo {
     minAgeDays?: number;
   }): Promise<{ deleted: ZCodeTaskMeta[]; skipped: Array<{ taskId: string; reason: string }> }> {
     await this.ensureReady();
-    const minAgeDays = Math.max(1, Math.floor(params.minAgeDays ?? 14));
+    const minAgeDays = Math.max(1, Math.floor(params.minAgeDays ?? 3));
     const cutoff = Date.now() - minAgeDays * 24 * 60 * 60 * 1000;
     const deleted: ZCodeTaskMeta[] = [];
     const skipped: Array<{ taskId: string; reason: string }> = [];

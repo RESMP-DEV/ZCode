@@ -7,7 +7,7 @@
 - 清理由 `session-sweeper` 子代理（GLM-5.3，thoughtLevel max）驱动：调用 `SessionSweepPlan` 获取候选（含钉住侧候选）、用 `SessionSweepSetPinned` 钉住值得保留/解除过期钉、用 `SessionSweepExecute` 提交删除清单。
 - 钉住/解除钉住是纯 membership 元数据：钉住 = 长期保留（永久退出候选守卫）；解除钉住不删除任何东西，只让该会话重新满足「可清理候选」守卫，交给后续轮次提名。两者均可逆。
 - 删除 = 先备份再删除：快照文件移动进 backlog 目录，tasks-index 行写 tombstone（deleted=1，去掉分组引用）。业务上"列表与磁盘都不再活跃"，但 backlog 可人工恢复。
-- 「不在行动中」由服务端守卫强制，agent 无法绕过：`deleted=0`、未钉住、无未读、无 pendingInteraction、（已归档 或 终态 completed/error）、无 cron/off-peak 身份、最后更新早于 minAgeDays（默认 14 天）。钉住侧候选 = 同款守卫但 `pinned=1`。执行阶段在同一事务内按同一谓词复核。
+- 「不在行动中」由服务端守卫强制，agent 无法绕过：`deleted=0`、未钉住、无未读、无 pendingInteraction、（已归档 或 终态 completed/error）、off-peak 身份排除、cron 身份按存活判定（归属 automation 已删除/停用的孤儿 run-transcript 可清理，存活 automation 的 run 与绑定目标受保护）、最后更新早于 minAgeDays（默认 3 天，与 72h 自动归档的节奏对齐）。钉住侧候选 = 同款守卫但 `pinned=1`。执行阶段在同一事务内按同一谓词复核。
 - 周期执行：cron automation 每 6 小时派发一条 prompt，由会话内 agent 派发 session-sweeper 子代理执行并一行回报。
 
 ## 状态所有者与事件顺序

@@ -173,6 +173,43 @@ test("execute 备份快照、tombstone 行、并跳过守卫复核失败项", as
   });
 });
 
+test("孤儿 cron transcript 可清理；存活 automation 的 run 仍受保护", async () => {
+  await withSweepEnv(async (repo, _root, now) => {
+    const old = now - 20 * DAY_MS;
+    await repo.syncTaskMeta({
+      meta: {
+        ...buildMeta({
+          taskId: "cron-orphan",
+          workspacePath: "/w",
+          updatedAt: old,
+          status: "completed",
+        }),
+        cronAutomationId: "automation-dead",
+      },
+    });
+    await repo.syncTaskMeta({
+      meta: {
+        ...buildMeta({
+          taskId: "cron-live",
+          workspacePath: "/w",
+          updatedAt: old,
+          status: "completed",
+        }),
+        cronAutomationId: "automation-alive",
+      },
+    });
+    // 存活 automation：只有 automations 表里存在 enabled=1 且 active 的行才受保护。
+    repo["getDatabase"]().exec(
+      `INSERT INTO automations (automation_id, title, cron_expr, prompt, workspace_key, workspace_path, created_at, updated_at, next_run_at)
+       VALUES ('automation-alive', 't', '* * * * *', 'p', '/w', '/w', 1, 1, 1)`,
+    );
+    const plan = await planSessionSweep(repo, {});
+    const ids = plan.candidates.map((c) => c.taskId);
+    assert.ok(ids.includes("cron-orphan"), "orphaned cron transcript should be eligible");
+    assert.ok(!ids.includes("cron-live"), "live automation transcript stays protected");
+  });
+});
+
 test("setPinned 钉住/解除钉住并影响下一轮 plan 候选", async () => {
   await withSweepEnv(async (repo, _root, now) => {
     const old = now - 20 * DAY_MS;
