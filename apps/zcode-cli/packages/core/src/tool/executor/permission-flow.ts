@@ -12,7 +12,12 @@ import {
 } from "@zcode/contracts";
 import type { HookRunResult } from "../../hooks/index.js";
 import type { PermissionContext } from "../../permission/service.js";
-import type { ExecutableToolCall, ToolEntry, ToolExecutionResult } from "../types.js";
+import type {
+  ExecutableToolCall,
+  ToolApprovalTurnScope,
+  ToolEntry,
+  ToolExecutionResult,
+} from "../types.js";
 import { normalizeToolExecutionInput } from "../input-normalization.js";
 import { resolveToolApproval } from "./approval-gate.js";
 import { createErrorResult, createPermissionErrorResult } from "./errors.js";
@@ -48,6 +53,7 @@ export async function resolveToolPermission(
   traceContext: TraceContext,
   signal?: AbortSignal,
   telemetry?: ToolExecutionSpanWriter,
+  turnScope?: ToolApprovalTurnScope,
 ): Promise<ToolPermissionFlowResult> {
   const permissionContext: PermissionContext = {
     toolName: toolCall.name,
@@ -151,7 +157,14 @@ export async function resolveToolPermission(
     };
   }
 
-  const approval = resolveToolApproval(deps, toolCall, entry, executionInput, traceContext);
+  const approval = resolveToolApproval(
+    deps,
+    toolCall,
+    entry,
+    executionInput,
+    traceContext,
+    turnScope,
+  );
   if (approval.gate === "proceed") {
     telemetry?.setPermissionDecision("not_required");
     return { allowed: true, executionInput };

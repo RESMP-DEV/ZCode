@@ -358,8 +358,13 @@ export interface ToolEntry extends ToolContractDeclaration {
    * already holds and must not perform I/O on the approval path. A tool that needs to
    * read the world before it can build a preview belongs in {@link resolveInput}, which
    * runs earlier, is async, and whose result the whole downstream chain shares.
+   *
+   * `turnScope` carries the current turn's scheduled-automation identity so a tool can
+   * narrow its own ask for exactly the turn-scoped self-cleanup case (e.g. CronDelete of
+   * the automation that triggered this run); it is positive-identity only and undefined
+   * on ordinary interactive turns.
    */
-  prepareApproval?: (input: unknown) => ToolApprovalGate;
+  prepareApproval?: (input: unknown, turnScope: ToolApprovalTurnScope) => ToolApprovalGate;
   inputSchema: JsonSchema;
   runtimeInputSchema?: unknown;
   runtimeOutputSchema?: unknown;
@@ -370,6 +375,16 @@ export interface ToolEntry extends ToolContractDeclaration {
 export type ToolApprovalGate =
   | { gate: "proceed" }
   | { gate: "ask"; display?: ToolResultDisplayPayload };
+
+/**
+ * Turn-scope facts handed to {@link ToolEntry.prepareApproval}: which scheduled automation
+ * (if any) triggered the current turn. Owned by host admission and positive-identity
+ * only — never inferred from the provider-visible tool denylist.
+ */
+export interface ToolApprovalTurnScope {
+  automationTurn?: boolean;
+  currentTurnAutomationId?: string;
+}
 
 export interface ToolPermissionRulePolicy {
   evaluateRules: (

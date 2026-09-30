@@ -297,6 +297,10 @@ async function executeToolCallImpl(
     traceContext,
     options?.signal,
     telemetry,
+    {
+      automationTurn: options?.automationTurn,
+      currentTurnAutomationId: options?.currentTurnAutomationId,
+    },
   );
   if (!permissionResult.allowed) {
     const result = appendPreToolAdditionalContextsToErrorResult(

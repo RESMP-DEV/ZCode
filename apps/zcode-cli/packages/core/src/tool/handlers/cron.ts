@@ -400,6 +400,19 @@ export const cronDeleteToolEntry: ToolEntry = {
     "CronDelete removes a scheduled background automation from this workspace",
     true,
   ),
+  // build 模式下 CronDelete 默认 ask；定时执行轮没有权限响应者，弹窗永远无人应答，
+  // 自清理无法完成。这里只对「本轮确为 automation 轮且删除目标正是触发本轮的 automation」
+  // 这一个 turn-scoped 情形把 ask 收窄为 proceed（deny 规则与 PreToolUse hook 已在更早
+  // 的边界评估过，不受影响）；其他任何 id、交互轮、或身份缺失时保持 ask。
+  // handler 内的 assertCronDeleteAllowed 仍独立复核同一身份，纵深防御不因此削弱。
+  prepareApproval: (input, turnScope) => {
+    if (!turnScope.automationTurn) return { gate: "ask" };
+    const parsed = CronDeleteInputSchema.safeParse(input);
+    if (!parsed.success) return { gate: "ask" };
+    return parsed.data.id === turnScope.currentTurnAutomationId
+      ? { gate: "proceed" }
+      : { gate: "ask" };
+  },
   resultBudget: cronResultBudget,
   timeout: cronTimeout,
   cancellation: {

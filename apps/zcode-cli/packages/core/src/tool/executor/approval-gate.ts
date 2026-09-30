@@ -4,7 +4,7 @@ import {
   type ToolResultDisplayPayload,
   type TraceContext,
 } from "@zcode/contracts";
-import type { ExecutableToolCall, ToolEntry } from "../types.js";
+import type { ExecutableToolCall, ToolApprovalTurnScope, ToolEntry } from "../types.js";
 import type { ToolExecutorDeps } from "./types.js";
 
 interface ResolvedToolApproval {
@@ -39,6 +39,7 @@ export function resolveToolApproval(
   entry: ToolEntry,
   executionInput: unknown,
   traceContext: TraceContext,
+  turnScope: ToolApprovalTurnScope = {},
 ): ResolvedToolApproval {
   // `permission` 类型上是必填，但 executor 也会被只声明了一部分字段的 entry 驱动
   // （测试桩、动态注册的工具）。周边代码靠 spread 而不是读字段来容忍这一点，gate 同理。
@@ -51,7 +52,7 @@ export function resolveToolApproval(
   try {
     // 工作目录与 handler 拿到的是同一个来源（deps 的 getWorkingDirectory 在 impl.ts 里已把
     // 静态 workingDirectory 兜进去），否则预览会去看一个目录、执行会去写另一个。
-    const gate = entry.prepareApproval(executionInput);
+    const gate = entry.prepareApproval(executionInput, turnScope);
     if (gate.gate === "proceed") return { gate: "proceed" };
     return {
       gate: "ask",
