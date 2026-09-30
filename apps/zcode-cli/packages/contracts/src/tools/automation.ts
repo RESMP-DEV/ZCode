@@ -309,7 +309,12 @@ export const CronUpdateOutputJsonSchema = toToolJsonSchema(CronUpdateOutputSchem
 // additive optional），让执行轮免标题匹配地定位自己，再做 scoped CronDelete 自清理；
 // Create/Update/Delete 的输出不携带该字段。
 const CronListEntrySchema = CronAutomationSchema.extend({
-  isCurrentTurnAutomation: z.boolean().optional(),
+  isCurrentTurnAutomation: z
+    .boolean()
+    .optional()
+    .describe(
+      "Present and true only on the automation that triggered the current scheduled run (never set in regular interactive turns); it is the CronDelete self-cleanup target.",
+    ),
 });
 export const CronListOutputSchema = z
   .object({

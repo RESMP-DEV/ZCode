@@ -281,6 +281,9 @@ export const cronListToolEntry: ToolEntry = {
   metadata: {
     name: "CronList",
     description: "List scheduled automations in the current workspace.",
+    modelInstructions: [
+      "Inside a scheduled automation run, exactly one entry carries isCurrentTurnAutomation: true — the automation that triggered this run. Use that id (not title matching) for end-of-life self-cleanup.",
+    ],
     readOnly: true,
     destructive: false,
     concurrentSafe: true,
