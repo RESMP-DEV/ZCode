@@ -127,6 +127,20 @@ export interface RegularTurnLoopState {
   userMessageId: MessageId;
 }
 
+/**
+ * 执行边界（ToolExecutionContext.automationTurn / CronDelete 范围校验）只认正向身份：
+ * 显式 automationId 或 automation- 前缀 queryId。绝不复用下面的 denylist 兜底——
+ * 普通交互 turn 也可能恰好同时 deny CronCreate+CronUpdate（如用户手动禁用这两个工具），
+ * 兜底会把这类 turn 误判为 automation turn，导致其 CronDelete 全部被拒。denylist 兜底
+ * 只服务 provider 可见性（buildTurnDisallowedTools）：那里误伤只是继续隐藏本就禁用的
+ * 工具，不改变权限语义。automation 派发的所有真实路径（活跃派发、busy 合并、恢复
+ * 重派）都保留 automation- 前缀 queryId，正向信号覆盖完整。
+ */
+export function hasPositiveAutomationTurnIdentity(state: RegularTurnLoopState): boolean {
+  if (state.automationId?.trim()) return true;
+  return state.turnTraceContext.queryId?.trim().startsWith(AUTOMATION_QUERY_ID_PREFIX) ?? false;
+}
+
 export function isAutomationMutationRestrictedTurn(state: RegularTurnLoopState): boolean {
   if (state.automationId?.trim()) return true;
   if (state.turnTraceContext.queryId?.trim().startsWith(AUTOMATION_QUERY_ID_PREFIX)) return true;

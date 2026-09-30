@@ -11,8 +11,8 @@
 
 ## 边界（三层）
 
-1. **可见性**：执行轮的 turn-scoped denylist 只合并 `CronCreate` / `CronUpdate`；`CronList`（只读）与 `CronDelete`（受限）保持可见。
-2. **执行边界最终校验**：`CronDelete` handler 在 `automationTurn === true` 时要求 `input.id === currentTurnAutomationId`，否则 `PermissionDenied`；身份缺失（旧 host 只带 denylist 签名、无 automationId）时保守拒绝（fail closed）。
+1. **可见性**：执行轮的 turn-scoped denylist 只合并 `CronCreate` / `CronUpdate`；`CronList`（只读）与 `CronDelete`（受限）保持可见。可见性判定（`isAutomationMutationRestrictedTurn`）保留 denylist 兜底信号——兜底误伤只是继续隐藏本就禁用的工具，不改变权限语义。
+2. **执行边界最终校验**：`CronDelete` handler 在 `automationTurn === true` 时要求 `input.id === currentTurnAutomationId`，否则 `PermissionDenied`；身份缺失（无 automationId）时保守拒绝（fail closed）。执行边界的 `automationTurn` 标志只认正向身份（`hasPositiveAutomationTurnIdentity`：显式 `automationId` 或 `automation-` 前缀 queryId），**不使用 denylist 兜底**——普通交互轮也可能恰好同时禁用 `CronCreate` + `CronUpdate`，兜底会把这类 turn 误判为执行轮并拒绝其全部 `CronDelete`。
 3. **自识别**：`CronList` 输出为匹配 `currentTurnAutomationId` 的条目附加 `isCurrentTurnAutomation: true`（仅 CronList 投影，additive optional 字段），让执行轮无需标题匹配即可找到自己。
 
 ## 事件顺序与幂等
@@ -26,6 +26,7 @@
 | --- | --- |
 | 执行轮删除非自身 automation | `PermissionDenied`，错误信息指明只能自清理、其他删除需常规交互轮 |
 | 执行轮身份缺失时任何 CronDelete | `PermissionDenied`（fail closed） |
+| 普通交互轮恰好 deny `CronCreate` + `CronUpdate` | 不是执行轮：`automationTurn === false`，任意 id 可删，走正常审批 |
 | 非执行轮（常规交互轮） | 行为不变：任意 id 可删，走正常审批 |
 
 ## 验收场景
@@ -34,3 +35,4 @@
 2. automation 轮内删除自身 → 成功，后续不再派发；删除其他 id → 拒绝。
 3. automation 轮内 `CronCreate` / `CronUpdate` 仍不可见（provider 请求边界隐藏）。
 4. 常规交互轮 `CronDelete` / `CronList` 行为与字段完全不变（输出无 `isCurrentTurnAutomation`）。
+5. 常规交互轮的 denylist 恰好等于 `{CronCreate, CronUpdate}` 时，`automationTurn` 仍为 `false`：`CronDelete` 任意 id 走正常审批，`CronList` 输出无 `isCurrentTurnAutomation`。
