@@ -173,6 +173,39 @@ test("execute 备份快照、tombstone 行、并跳过守卫复核失败项", as
   });
 });
 
+test("手动归档走 1 天宽限；未归档终态仍需满 minAgeDays", async () => {
+  await withSweepEnv(async (repo, _root, now) => {
+    const twoDaysAgo = now - 2 * DAY_MS;
+    // 已归档 + 2 天前活跃：过 1 天宽限，不过 3 天门槛 → 应可清理。
+    await repo.syncTaskMeta({
+      meta: buildMeta({
+        taskId: "arch-2d",
+        workspacePath: "/w",
+        updatedAt: twoDaysAgo,
+        status: "completed",
+      }),
+    });
+    await repo.updateTaskState({
+      workspacePath: "/w",
+      taskId: "arch-2d",
+      patch: { archived: true },
+    });
+    // 未归档终态 + 2 天前活跃：不满 3 天 → 不可清理。
+    await repo.syncTaskMeta({
+      meta: buildMeta({
+        taskId: "live-2d",
+        workspacePath: "/w",
+        updatedAt: twoDaysAgo,
+        status: "completed",
+      }),
+    });
+    const plan = await planSessionSweep(repo, {});
+    const ids = plan.candidates.map((c) => c.taskId);
+    assert.ok(ids.includes("arch-2d"), "archived row should pass the 1-day grace");
+    assert.ok(!ids.includes("live-2d"), "unarchived terminal row must still wait out minAgeDays");
+  });
+});
+
 test("孤儿 cron transcript 可清理；存活 automation 的 run 仍受保护", async () => {
   await withSweepEnv(async (repo, _root, now) => {
     const old = now - 20 * DAY_MS;
