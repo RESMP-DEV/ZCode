@@ -6,8 +6,9 @@ import { cronDeleteToolEntry, cronListToolEntry } from "../src/tool/handlers/cro
 
 // specs/automation-turn-self-cleanup.md：CronDelete 在执行轮只放行触发本轮的 automation
 // （自清理），身份缺失 fail closed；交互轮任意 id 走原语义。CronList 仅在执行轮为匹配
-// 条目附加 isCurrentTurnAutomation。prepareApproval 只对「执行轮 + 自身 id」把 ask 收窄
-// 为 proceed，其余一律保持 ask。
+// 条目附加 isCurrentTurnAutomation。prepareApproval 在执行轮内对「自身 id」把 ask 收窄
+// 为 proceed，其余目标直接 deny（定时轮无权限响应者，无人应答的 ask 会挂死整轮）；
+// 交互轮一律保持 ask。
 
 function makeAutomation(automationId: string): CronAutomation {
   return {
@@ -129,18 +130,32 @@ test("CronList never marks entries outside an automation turn", async () => {
   assert.equal(output.automations[0]?.isCurrentTurnAutomation, undefined);
 });
 
-test("prepareApproval narrows ask to proceed only for the self-cleanup id", () => {
+test("prepareApproval proceeds for self-cleanup and denies other targets inside automation turns", () => {
   const prepare = cronDeleteToolEntry.prepareApproval;
   assert.ok(prepare, "CronDelete entry must declare prepareApproval");
+  const deny = (gate: unknown): { gate: string; reason?: string } => {
+    const g = gate as { gate: string; reason?: string };
+    assert.equal(g.gate, "deny");
+    assert.ok(g.reason, "deny must carry a human-readable reason");
+    return g;
+  };
   assert.deepEqual(
     prepare({ id: "auto-self" }, { automationTurn: true, currentTurnAutomationId: "auto-self" }),
     { gate: "proceed" },
   );
-  assert.deepEqual(
-    prepare({ id: "auto-other" }, { automationTurn: true, currentTurnAutomationId: "auto-self" }),
-    { gate: "ask" },
+  // 执行轮内非自身 id：deny 而非 ask——无人应答的 ask 会无限挂起（bug：permissionTimeoutMs 默认未设）。
+  assert.match(
+    deny(prepare({ id: "auto-other" }, { automationTurn: true, currentTurnAutomationId: "auto-self" })).reason,
+    /may only delete the automation that triggered this run/,
   );
-  assert.deepEqual(prepare({ id: "auto-self" }, { automationTurn: true }), { gate: "ask" });
+  // 执行轮身份缺失：fail closed 同样发生在 gate 层。
+  assert.match(
+    deny(prepare({ id: "auto-self" }, { automationTurn: true })).reason,
+    /may only delete the automation that triggered this run/,
+  );
+  // 输入不合法的执行轮调用也 deny，避免挂起在无人应答的 ask 上。
+  assert.equal(deny(prepare({ wrong: "shape" }, { automationTurn: true })).gate, "deny");
+  // 交互轮保持 ask，走正常人工审批。
   assert.deepEqual(prepare({ id: "auto-self" }, {}), { gate: "ask" });
-  assert.deepEqual(prepare({ wrong: "shape" }, { automationTurn: true }), { gate: "ask" });
+  assert.deepEqual(prepare({ wrong: "shape" }, {}), { gate: "ask" });
 });

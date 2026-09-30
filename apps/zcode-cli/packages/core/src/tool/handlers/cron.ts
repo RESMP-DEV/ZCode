@@ -405,18 +405,23 @@ export const cronDeleteToolEntry: ToolEntry = {
     "CronDelete removes a scheduled background automation from this workspace",
     true,
   ),
-  // build 模式下 CronDelete 默认 ask；定时执行轮没有权限响应者，弹窗永远无人应答，
-  // 自清理无法完成。这里只对「本轮确为 automation 轮且删除目标正是触发本轮的 automation」
-  // 这一个 turn-scoped 情形把 ask 收窄为 proceed（deny 规则与 PreToolUse hook 已在更早
-  // 的边界评估过，不受影响）；其他任何 id、交互轮、或身份缺失时保持 ask。
+  // build 模式下 CronDelete 默认 ask；定时执行轮没有权限响应者且默认无 permissionTimeoutMs，
+  // ask 永远无人应答会把整轮挂死。这里按 turn-scoped 事实分流：
+  // 「本轮确为 automation 轮且删除目标正是触发本轮的 automation」→ ask 收窄为 proceed（自清理）；
+  // 执行轮内其余情形（其他 id、身份缺失、输入不合法）→ 直接 deny 并附原因，让调用即刻得到
+  // 干净的 PermissionDenied 结果而不是无限等待 broker（deny 规则与 PreToolUse hook 已在更早
+  // 边界评估过，allow 判定不受影响，钩子只在 ask 分支内运行）；交互轮保持 ask 走人工审批。
   // handler 内的 assertCronDeleteAllowed 仍独立复核同一身份，纵深防御不因此削弱。
   prepareApproval: (input, turnScope) => {
     if (!turnScope.automationTurn) return { gate: "ask" };
     const parsed = CronDeleteInputSchema.safeParse(input);
-    if (!parsed.success) return { gate: "ask" };
-    return parsed.data.id === turnScope.currentTurnAutomationId
+    return parsed.success && parsed.data.id === turnScope.currentTurnAutomationId
       ? { gate: "proceed" }
-      : { gate: "ask" };
+      : {
+          gate: "deny",
+          reason:
+            "CronDelete during a scheduled automation run may only delete the automation that triggered this run (self-cleanup). There is no permission responder in a scheduled run, so this call is denied instead of asked; delete other automations from a regular interactive turn.",
+        };
   },
   resultBudget: cronResultBudget,
   timeout: cronTimeout,

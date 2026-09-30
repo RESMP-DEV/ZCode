@@ -8,16 +8,20 @@ import type { ExecutableToolCall, ToolApprovalTurnScope, ToolEntry } from "../ty
 import type { ToolExecutorDeps } from "./types.js";
 
 interface ResolvedToolApproval {
-  gate: "ask" | "proceed";
+  gate: "ask" | "proceed" | "deny";
   display?: ToolResultDisplayPayload;
   optionsPolicy?: PermissionOptionsPolicy;
+  reason?: string;
 }
 
 /**
  * 在权限服务已判定 ask 之后调用工具自报的 `prepareApproval`，并把它的答复与工具声明的
  * 选项策略折叠成"这次 ask 该携带什么"。
  *
- * 方向是单向收窄：钩子只能把 ask 放行成 proceed 或给它补上预览，永远不能把 allow 变成 ask。
+ * 方向是单向收窄：钩子只能把 ask 放行成 proceed、给它补上预览、或把它明确否决成 deny
+ * （附原因），永远不能把 allow 变成 ask 或 deny。deny 用于 ask 永远无人应答的场景
+ * （如定时 automation 轮没有权限响应者）：与其让 broker 无限等待挂起工具调用，不如让
+ * 工具调用即刻得到带原因的 PermissionDenied 结果。
  * 没有声明钩子的工具一律照旧弹窗。
  */
 function resolveOptionsPolicy(
@@ -54,6 +58,9 @@ export function resolveToolApproval(
     // 静态 workingDirectory 兜进去），否则预览会去看一个目录、执行会去写另一个。
     const gate = entry.prepareApproval(executionInput, turnScope);
     if (gate.gate === "proceed") return { gate: "proceed" };
+    if (gate.gate === "deny") {
+      return { gate: "deny", ...(gate.reason ? { reason: gate.reason } : {}) };
+    }
     return {
       gate: "ask",
       ...(gate.display ? { display: gate.display } : {}),

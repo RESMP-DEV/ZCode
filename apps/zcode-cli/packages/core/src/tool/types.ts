@@ -351,8 +351,11 @@ export interface ToolEntry extends ToolContractDeclaration {
   ) => ToolPermissionRulePolicy | undefined;
   /**
    * Last word on an `ask` decision, owned by the tool. Runs after the permission service
-   * has already decided to ask, so it can only narrow the ask to a pass (`proceed`) or
-   * enrich it with a preview — it can never turn an allow into an ask.
+   * has already decided to ask, so it can only narrow the ask to a pass (`proceed`), deny
+   * it outright (`deny`, with a reason), or enrich it with a preview — it can never turn
+   * an allow into an ask. `deny` exists for contexts where the ask can never be answered
+   * (e.g. a scheduled automation run has no permission responder; an unanswered ask would
+   * stall the tool call indefinitely).
    *
    * Synchronous like the other permission hooks: it inspects the input the executor
    * already holds and must not perform I/O on the approval path. A tool that needs to
@@ -374,7 +377,8 @@ export interface ToolEntry extends ToolContractDeclaration {
 
 export type ToolApprovalGate =
   | { gate: "proceed" }
-  | { gate: "ask"; display?: ToolResultDisplayPayload };
+  | { gate: "ask"; display?: ToolResultDisplayPayload }
+  | { gate: "deny"; reason?: string };
 
 /**
  * Turn-scope facts handed to {@link ToolEntry.prepareApproval}: which scheduled automation
