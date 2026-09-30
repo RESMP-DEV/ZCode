@@ -12,7 +12,12 @@ import {
 } from "@zcode/contracts";
 import type { HookRunResult } from "../../hooks/index.js";
 import type { PermissionContext } from "../../permission/service.js";
-import type { ExecutableToolCall, ToolEntry, ToolExecutionResult } from "../types.js";
+import type {
+  ExecutableToolCall,
+  ToolApprovalTurnScope,
+  ToolEntry,
+  ToolExecutionResult,
+} from "../types.js";
 import { normalizeToolExecutionInput } from "../input-normalization.js";
 import { resolveToolApproval } from "./approval-gate.js";
 import { createErrorResult, createPermissionErrorResult } from "./errors.js";
@@ -48,6 +53,7 @@ export async function resolveToolPermission(
   traceContext: TraceContext,
   signal?: AbortSignal,
   telemetry?: ToolExecutionSpanWriter,
+  turnScope?: ToolApprovalTurnScope,
 ): Promise<ToolPermissionFlowResult> {
   const permissionContext: PermissionContext = {
     toolName: toolCall.name,
@@ -151,10 +157,44 @@ export async function resolveToolPermission(
     };
   }
 
-  const approval = resolveToolApproval(deps, toolCall, entry, executionInput, traceContext);
+  const approval = resolveToolApproval(
+    deps,
+    toolCall,
+    entry,
+    executionInput,
+    traceContext,
+    turnScope,
+  );
   if (approval.gate === "proceed") {
     telemetry?.setPermissionDecision("not_required");
     return { allowed: true, executionInput };
+  }
+  if (approval.gate === "deny") {
+    // 定时 automation 轮没有权限响应者且默认无 permissionTimeoutMs：工具自报 deny 的
+    // ask 若照常进入 broker 等待将永久挂起整轮。这里按规则拒绝同构的路径处理——
+    // 发出 PermissionDenied 事件并返回干净的错误结果，让调用方（模型）能立即看到原因。
+    telemetry?.setPermissionDecision("denied");
+    const reason = approval.reason ?? `Permission denied for ${toolCall.name}`;
+    await emitPermissionDenied(deps, toolCall, reason, traceContext);
+    deps.logger?.warn("Tool permission denied by approval gate", {
+      ...traceContextToLogContext(traceContext),
+      decision: "deny",
+      event: "tool.permission.denied",
+      mode,
+      module: "core.tool.executor",
+      reason,
+      status: "failed",
+      toolCallId: toolCall.id,
+      toolName: toolCall.name,
+    });
+    return {
+      allowed: false,
+      result: createPermissionErrorResult(toolCall, reason, {
+        decision: "deny",
+        mode,
+        source: "prepareApproval",
+      }),
+    };
   }
 
   const requestId = `perm_${crypto.randomUUID()}`;

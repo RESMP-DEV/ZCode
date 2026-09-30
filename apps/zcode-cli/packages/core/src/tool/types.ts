@@ -351,15 +351,23 @@ export interface ToolEntry extends ToolContractDeclaration {
   ) => ToolPermissionRulePolicy | undefined;
   /**
    * Last word on an `ask` decision, owned by the tool. Runs after the permission service
-   * has already decided to ask, so it can only narrow the ask to a pass (`proceed`) or
-   * enrich it with a preview — it can never turn an allow into an ask.
+   * has already decided to ask, so it can only narrow the ask to a pass (`proceed`), deny
+   * it outright (`deny`, with a reason), or enrich it with a preview — it can never turn
+   * an allow into an ask. `deny` exists for contexts where the ask can never be answered
+   * (e.g. a scheduled automation run has no permission responder; an unanswered ask would
+   * stall the tool call indefinitely).
    *
    * Synchronous like the other permission hooks: it inspects the input the executor
    * already holds and must not perform I/O on the approval path. A tool that needs to
    * read the world before it can build a preview belongs in {@link resolveInput}, which
    * runs earlier, is async, and whose result the whole downstream chain shares.
+   *
+   * `turnScope` carries the current turn's scheduled-automation identity so a tool can
+   * narrow its own ask for exactly the turn-scoped self-cleanup case (e.g. CronDelete of
+   * the automation that triggered this run); it is positive-identity only and undefined
+   * on ordinary interactive turns.
    */
-  prepareApproval?: (input: unknown) => ToolApprovalGate;
+  prepareApproval?: (input: unknown, turnScope: ToolApprovalTurnScope) => ToolApprovalGate;
   inputSchema: JsonSchema;
   runtimeInputSchema?: unknown;
   runtimeOutputSchema?: unknown;
@@ -369,7 +377,18 @@ export interface ToolEntry extends ToolContractDeclaration {
 
 export type ToolApprovalGate =
   | { gate: "proceed" }
-  | { gate: "ask"; display?: ToolResultDisplayPayload };
+  | { gate: "ask"; display?: ToolResultDisplayPayload }
+  | { gate: "deny"; reason?: string };
+
+/**
+ * Turn-scope facts handed to {@link ToolEntry.prepareApproval}: which scheduled automation
+ * (if any) triggered the current turn. Owned by host admission and positive-identity
+ * only — never inferred from the provider-visible tool denylist.
+ */
+export interface ToolApprovalTurnScope {
+  automationTurn?: boolean;
+  currentTurnAutomationId?: string;
+}
 
 export interface ToolPermissionRulePolicy {
   evaluateRules: (

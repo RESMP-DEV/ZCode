@@ -10,6 +10,17 @@ import type { ModelSelection } from "./model-selection.js";
 export const AUTOMATION_CREATE_LIMIT = 20;
 export const AUTOMATION_CREATE_LIMIT_ERROR_CODE = "AUTOMATION_CREATE_LIMIT_REACHED";
 
+/**
+ * automation 执行轮隐藏的「任务定义写工具」（CronCreate/CronUpdate）。CronDelete 刻意
+ * 不在表内：执行轮需要删除触发本轮的 automation 做自清理（如 pr-loop 在 PR 合并后收尾），
+ * 范围校验在 CronDelete handler 执行边界——只放行 currentTurnAutomationId，身份缺失时
+ * 保守拒绝。此常量是 host denylist（bootstrap prompt-turn、services automationToolPolicy）
+ * 与 core 兜底判定（turn-loop-state 的 every() fallback）三处的单一事实源；绝不因
+ * 「名字像 mutation」把 CronDelete 加回来。命名为 DEFINITION 而非 MUTATION：CronDelete
+ * 同样改写 automation 状态但刻意放行，名字必须与内容一致。
+ */
+export const AUTOMATION_DEFINITION_TOOL_NAMES = ["CronCreate", "CronUpdate"] as const;
+
 export function isAutomationCreateLimitError(error: unknown): boolean {
   const message = typeof error === "string" ? error : error instanceof Error ? error.message : "";
   return message.includes(AUTOMATION_CREATE_LIMIT_ERROR_CODE);

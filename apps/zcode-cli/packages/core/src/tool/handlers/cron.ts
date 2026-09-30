@@ -142,7 +142,9 @@ const cronListHandler: ToolHandler = async (input, context) => {
     automations: automations.map((automation) => ({
       ...toModelAutomation(automation),
       // automation 执行轮内标记触发本轮的条目，供模型免标题匹配地做 scoped CronDelete 自清理。
-      ...(context.currentTurnAutomationId === automation.automationId
+      // 必须同时要求 automationTurn：执行轮身份缺失（旧 host 漏传）时 currentTurnAutomationId
+      // 为空、标记自然不出现；而交互轮即使偶然携带同名字段也不是"本轮触发"，不得标记。
+      ...(context.automationTurn && context.currentTurnAutomationId === automation.automationId
         ? { isCurrentTurnAutomation: true }
         : {}),
     })),
@@ -279,6 +281,9 @@ export const cronListToolEntry: ToolEntry = {
   metadata: {
     name: "CronList",
     description: "List scheduled automations in the current workspace.",
+    modelInstructions: [
+      "Inside a scheduled automation run, at most one entry carries isCurrentTurnAutomation: true — the automation that triggered this run. Use that id (not title matching) for end-of-life self-cleanup. If no entry is marked, no automation id matches this run (identity not resolved, or the triggering automation no longer exists): self-cleanup is not applicable this turn — do not guess an id or call CronDelete.",
+    ],
     readOnly: true,
     destructive: false,
     concurrentSafe: true,
@@ -378,8 +383,8 @@ export const cronDeleteToolEntry: ToolEntry = {
       "Delete a scheduled automation from the current workspace by automation id. Inside a scheduled automation run, only the automation that triggered the current run may be deleted (self-cleanup once its work is permanently finished).",
     modelInstructions: [
       "Use CronList first when the automation id is not already known. Never guess an automation id.",
-      "Inside a scheduled automation run, CronList marks the entry whose isCurrentTurnAutomation is true: that is the automation that triggered this run. When its work is permanently finished (for example the monitored PR merged or the user cancelled the loop), CronDelete that id so the schedule stops firing; this self-cleanup is the built-in end-of-life path for loop-shaped automations.",
-      "Deleting a different automation during a scheduled run is rejected. Report to the user and let them delete it from a regular interactive turn instead.",
+      "Inside a scheduled automation run, CronList marks the entry whose isCurrentTurnAutomation is true: that is the automation that triggered this run. When its work is permanently finished (for example the monitored PR merged or the user cancelled the loop), CronDelete that id so the schedule stops firing; this self-cleanup is the built-in end-of-life path for loop-shaped automations. If no entry is marked, no automation id matches this run — skip self-cleanup this turn instead of guessing an id.",
+      "Deleting a different automation during a scheduled run is denied without an approval prompt. Report to the user and let them delete it from a regular interactive turn instead.",
     ],
     readOnly: false,
     destructive: true,
@@ -400,6 +405,24 @@ export const cronDeleteToolEntry: ToolEntry = {
     "CronDelete removes a scheduled background automation from this workspace",
     true,
   ),
+  // build 模式下 CronDelete 默认 ask；定时执行轮没有权限响应者且默认无 permissionTimeoutMs，
+  // ask 永远无人应答会把整轮挂死。这里按 turn-scoped 事实分流：
+  // 「本轮确为 automation 轮且删除目标正是触发本轮的 automation」→ ask 收窄为 proceed（自清理）；
+  // 执行轮内其余情形（其他 id、身份缺失、输入不合法）→ 直接 deny 并附原因，让调用即刻得到
+  // 干净的 PermissionDenied 结果而不是无限等待 broker（deny 规则与 PreToolUse hook 已在更早
+  // 边界评估过，allow 判定不受影响，钩子只在 ask 分支内运行）；交互轮保持 ask 走人工审批。
+  // handler 内的 assertCronDeleteAllowed 仍独立复核同一身份，纵深防御不因此削弱。
+  prepareApproval: (input, turnScope) => {
+    if (!turnScope.automationTurn) return { gate: "ask" };
+    const parsed = CronDeleteInputSchema.safeParse(input);
+    return parsed.success && parsed.data.id === turnScope.currentTurnAutomationId
+      ? { gate: "proceed" }
+      : {
+          gate: "deny",
+          reason:
+            "CronDelete during a scheduled automation run may only delete the automation that triggered this run (self-cleanup). There is no permission responder in a scheduled run, so this call is denied instead of asked; delete other automations from a regular interactive turn.",
+        };
+  },
   resultBudget: cronResultBudget,
   timeout: cronTimeout,
   cancellation: {

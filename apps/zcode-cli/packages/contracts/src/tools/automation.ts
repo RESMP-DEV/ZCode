@@ -307,9 +307,16 @@ export const CronUpdateOutputJsonSchema = toToolJsonSchema(CronUpdateOutputSchem
 
 // automation 执行轮内为触发本轮的条目附加 isCurrentTurnAutomation（仅 CronList 投影，
 // additive optional），让执行轮免标题匹配地定位自己，再做 scoped CronDelete 自清理；
-// Create/Update/Delete 的输出不携带该字段。
+// Create/Update/Delete 的输出不携带该字段。契约是"只在匹配时出现且恒为 true"，handler
+// 也只发 true：用 literal(true) 显式拒绝 false——boolean() 会放行一个永不可达的 false，
+// 与描述承诺的 "present and true only" 矛盾。
 const CronListEntrySchema = CronAutomationSchema.extend({
-  isCurrentTurnAutomation: z.boolean().optional(),
+  isCurrentTurnAutomation: z
+    .literal(true)
+    .optional()
+    .describe(
+      "Present and true only on the automation that triggered the current scheduled run (never set in regular interactive turns); it is the CronDelete self-cleanup target.",
+    ),
 });
 export const CronListOutputSchema = z
   .object({
