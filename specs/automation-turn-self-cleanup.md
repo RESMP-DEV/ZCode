@@ -23,14 +23,14 @@
 
 ## 失败语义
 
-| 场景                                            | 行为                                                                     |
-| ----------------------------------------------- | ------------------------------------------------------------------------ |
+| 场景                                            | 行为                                                                                                             |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | 执行轮删除非自身 automation                     | `prepareApproval` 直接 deny（附原因），即刻返回 `PermissionDenied`，不进入无人应答的审批等待；handler 亦复核身份 |
-| 执行轮删除自身（自清理）                        | `prepareApproval` 收窄为 proceed，无需响应者即执行；handler 复核身份     |
-| 执行轮身份缺失时任何 CronDelete                 | `prepareApproval` 即 deny（fail closed）；若仍执行到 handler 则 `PermissionDenied` |
-| 执行轮身份缺失时 CronList                       | 无任何 `isCurrentTurnAutomation` 标记；模型指引要求停止自清理而非猜测 id |
-| 普通交互轮恰好 deny `CronCreate` + `CronUpdate` | 不是执行轮：`automationTurn === false`，任意 id 可删，走正常审批         |
-| 非执行轮（常规交互轮）                          | 行为不变：任意 id 可删，走正常审批                                       |
+| 执行轮删除自身（自清理）                        | `prepareApproval` 收窄为 proceed，无需响应者即执行；handler 复核身份                                             |
+| 执行轮身份缺失时任何 CronDelete                 | `prepareApproval` 即 deny（fail closed）；若仍执行到 handler 则 `PermissionDenied`                               |
+| 执行轮身份缺失时 CronList                       | 无任何 `isCurrentTurnAutomation` 标记；模型指引要求停止自清理而非猜测 id                                         |
+| 普通交互轮恰好 deny `CronCreate` + `CronUpdate` | 不是执行轮：`automationTurn === false`，任意 id 可删，走正常审批                                                 |
+| 非执行轮（常规交互轮）                          | 行为不变：任意 id 可删，走正常审批                                                                               |
 
 ## 验收场景
 
