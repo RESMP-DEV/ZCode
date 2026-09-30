@@ -11,6 +11,7 @@ import type {
   TurnId,
 } from "../deps.js";
 import type { ActiveTurnSteeringState } from "../types.js";
+import { AUTOMATION_DEFINITION_TOOL_NAMES } from "@zcode/shared";
 import type { SubagentRunOptions } from "@zcode/contracts";
 import type { DrainedPendingInputDiagnostics } from "../types.js";
 import type { TurnMachineImpl } from "../deps.js";
@@ -20,7 +21,6 @@ export type PendingStreamRecoveryRequest = ModelStreamRecoveryStatus;
 
 export const RAPID_REFILL_TOOL_TURN_THRESHOLD = 3;
 export const MAX_CONSECUTIVE_RAPID_REFILLS = 3;
-export const AUTOMATION_MUTATION_TOOL_NAMES = ["CronCreate", "CronUpdate", "CronDelete"] as const;
 const AUTOMATION_QUERY_ID_PREFIX = "automation-";
 /**
  * 闲时派发轮隐藏的工具；OffPeakList 只读保留。
@@ -28,7 +28,7 @@ const AUTOMATION_QUERY_ID_PREFIX = "automation-";
  * - SendMessage / Workflow：会在闲时 turn 的 modelExecution 之外重新启动子 Agent（SendMessage 续跑
  *   已完成子 Agent、Workflow 派生脚本子会话），按父会话常驻选择建模型。
  *
- * 独立常量，绝不并入 AUTOMATION_MUTATION_TOOL_NAMES——cron automation turn 明确放行
+ * 独立常量，绝不并入 AUTOMATION_DEFINITION_TOOL_NAMES——cron automation turn 明确放行
  * OffPeakCreate（定时派生闲时任务），混入会让 automation turn 误 deny。
  */
 export const OFF_PEAK_MUTATION_TOOL_NAMES = ["OffPeakCreate", "SendMessage", "Workflow"] as const;
@@ -127,6 +127,20 @@ export interface RegularTurnLoopState {
   userMessageId: MessageId;
 }
 
+/**
+ * 执行边界（ToolExecutionContext.automationTurn / CronDelete 范围校验）只认正向身份：
+ * 显式 automationId 或 automation- 前缀 queryId。绝不复用下面的 denylist 兜底——
+ * 普通交互 turn 也可能恰好同时 deny CronCreate+CronUpdate（如用户手动禁用这两个工具），
+ * 兜底会把这类 turn 误判为 automation turn，导致其 CronDelete 全部被拒。denylist 兜底
+ * 只服务 provider 可见性（buildTurnDisallowedTools）：那里误伤只是继续隐藏本就禁用的
+ * 工具，不改变权限语义。automation 派发的所有真实路径（活跃派发、busy 合并、恢复
+ * 重派）都保留 automation- 前缀 queryId，正向信号覆盖完整。
+ */
+export function hasPositiveAutomationTurnIdentity(state: RegularTurnLoopState): boolean {
+  if (state.automationId?.trim()) return true;
+  return state.turnTraceContext.queryId?.trim().startsWith(AUTOMATION_QUERY_ID_PREFIX) ?? false;
+}
+
 export function isAutomationMutationRestrictedTurn(state: RegularTurnLoopState): boolean {
   if (state.automationId?.trim()) return true;
   if (state.turnTraceContext.queryId?.trim().startsWith(AUTOMATION_QUERY_ID_PREFIX)) return true;
@@ -134,7 +148,7 @@ export function isAutomationMutationRestrictedTurn(state: RegularTurnLoopState):
   const disallowedTools = new Set(state.toolDisallowlist ?? []);
   // active/busy automation 输入会把 turn-scoped denylist 合并进当前 loop；即使原始
   // automationId 不再是 loop 首输入，也必须把同一事实继续传到 handler 执行边界。
-  return AUTOMATION_MUTATION_TOOL_NAMES.every((toolName) => disallowedTools.has(toolName));
+  return AUTOMATION_DEFINITION_TOOL_NAMES.every((toolName) => disallowedTools.has(toolName));
 }
 
 /**

@@ -32,7 +32,7 @@ import { handleToolCallAnomalyWarnings } from "./turn-tool-warnings.js";
 import { emitNestedModelUsageEvents } from "./turn-nested-model-usage.js";
 import type { RegularTurnLoopState } from "./turn-loop-state.js";
 import {
-  isAutomationMutationRestrictedTurn,
+  hasPositiveAutomationTurnIdentity,
   isOffPeakCreateRestrictedTurn,
   recordCompletedToolBatch,
 } from "./turn-loop-state.js";
@@ -178,7 +178,8 @@ export async function executeToolCallsForModelStep(
       tools: pendingToolCalls.map((tc) => tc.name),
     });
     const execution = await this.executeTools(pendingToolCalls, pendingSchedule, {
-      automationTurn: isAutomationMutationRestrictedTurn(state),
+      automationTurn: hasPositiveAutomationTurnIdentity(state),
+      currentTurnAutomationId: state.automationId,
       offPeakTurn: isOffPeakCreateRestrictedTurn(state),
       signal: state.turnAbortSignal,
       traceContext: options.modelTraceContext,

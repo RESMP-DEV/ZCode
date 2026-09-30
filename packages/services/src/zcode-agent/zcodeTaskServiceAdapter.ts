@@ -110,6 +110,7 @@ import {
   type ZCodeUserInputResponse,
   type ZCodeAgentMcpServer,
 } from "@zcode/shared";
+import { AUTOMATION_DEFINITION_TOOL_NAMES } from "@zcode/shared";
 import type {
   ZCodeTaskListQuery,
   ZCodeTaskListResult,
@@ -120,10 +121,7 @@ import type {
   ZCodeTaskTerminalOutcome,
 } from "../session/zcodeTaskService.js";
 import { createServiceLogger } from "#src/logger/serviceLogger.js";
-import {
-  AUTOMATION_MUTATION_TOOL_NAMES,
-  OFF_PEAK_MUTATION_TOOL_NAMES,
-} from "#src/zcode-agent/automationToolPolicy.js";
+import { OFF_PEAK_MUTATION_TOOL_NAMES } from "#src/zcode-agent/automationToolPolicy.js";
 import type { ISettingService } from "#src/setting/setting.js";
 import type {
   SessionMessageDeliveryResult,
@@ -306,7 +304,7 @@ export function createZCodeTaskServiceAdapter(
     // 跑过一次后，用户在同一会话主动修改调度也永久看不到 CronUpdate。权限必须只看本轮
     // automationId；cronAutomationId 仅保留任务归属和 UI 展示语义。
     if (params.automationId) {
-      for (const toolName of AUTOMATION_MUTATION_TOOL_NAMES) {
+      for (const toolName of AUTOMATION_DEFINITION_TOOL_NAMES) {
         toolDenylist.add(toolName);
       }
     }

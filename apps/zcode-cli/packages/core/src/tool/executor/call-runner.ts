@@ -297,6 +297,10 @@ async function executeToolCallImpl(
     traceContext,
     options?.signal,
     telemetry,
+    {
+      automationTurn: options?.automationTurn,
+      currentTurnAutomationId: options?.currentTurnAutomationId,
+    },
   );
   if (!permissionResult.allowed) {
     const result = appendPreToolAdditionalContextsToErrorResult(
@@ -375,6 +379,7 @@ async function executeToolCallImpl(
       toolCallId: canonicalToolCall.id,
       telemetry,
       automationTurn: options?.automationTurn,
+      currentTurnAutomationId: options?.currentTurnAutomationId,
       offPeakTurn: options?.offPeakTurn,
       traceContext,
       traceId,

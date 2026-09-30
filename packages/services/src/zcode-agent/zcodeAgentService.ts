@@ -123,7 +123,7 @@ import type {
   IAccountRequestAuthService,
 } from "#src/model-provider/accountRequestAuthService.js";
 import {
-  mergeAutomationMutationToolDenylist,
+  mergeAutomationDefinitionToolDenylist,
   mergeOffPeakMutationToolDenylist,
 } from "#src/zcode-agent/automationToolPolicy.js";
 import { ZCODE_AGENT_RUNTIME_UNAVAILABLE_CODE } from "./zcodeAgent.js";
@@ -3392,7 +3392,8 @@ export function createZCodeAgentService(
 
     const payload = commandPayloadSchemas.sendText.parse(envelope.payload);
     // 读取持久化 cronAutomationId 后不能把整个绑定会话永久视为 automation
-    // 执行上下文。用户后续主动输入也因此丢失 CronUpdate/CronDelete。这里只认本轮 payload；
+    // 执行上下文。用户后续主动输入也因此丢失 CronCreate/CronUpdate（CronDelete 在
+    // 执行轮内是 scoped 自清理，不受 denylist 影响）。这里只认本轮 payload；
     // automation runId 漏传 payload 的兼容识别由 CLI 的 resolveTurnAutomationId 兜底。
     if (payload.automationId) {
       // desktop continuous 的 automation 派发不一定经过 task adapter；在协议信封处合并本轮
@@ -3401,7 +3402,7 @@ export function createZCodeAgentService(
         ...envelope,
         payload: {
           ...payload,
-          toolDisallowlist: mergeAutomationMutationToolDenylist(payload.toolDisallowlist ?? []),
+          toolDisallowlist: mergeAutomationDefinitionToolDenylist(payload.toolDisallowlist ?? []),
         },
       };
     }

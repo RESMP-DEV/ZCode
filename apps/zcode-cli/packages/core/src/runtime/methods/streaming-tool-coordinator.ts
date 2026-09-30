@@ -27,7 +27,7 @@ import { executeToolCallsForModelStep } from "./turn-tools.js";
 import { mcpToolPartMetadata } from "./tool-part-metadata.js";
 import { persistPendingToolPart } from "./tool-part-persistence.js";
 import {
-  isAutomationMutationRestrictedTurn,
+  hasPositiveAutomationTurnIdentity,
   isOffPeakCreateRestrictedTurn,
   recordModelHistoryRound,
   type RegularTurnLoopState,
@@ -287,7 +287,8 @@ async function executeDuringStream(
   const execution = await runtime.executeTools([toolCall], schedule, {
     subagentModelOverride: state.subagentModelOverride,
     model: state.model,
-    automationTurn: isAutomationMutationRestrictedTurn(state),
+    automationTurn: hasPositiveAutomationTurnIdentity(state),
+    currentTurnAutomationId: state.automationId,
     offPeakTurn: isOffPeakCreateRestrictedTurn(state),
     signal: options.abortSignal,
     traceContext: options.traceContext,

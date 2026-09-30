@@ -5,6 +5,7 @@
 // starting/active 状态都会继续挡住同一 session 的第二次 start。
 import { type TurnBackgroundAttribution, type TurnInputIntentMetadata } from "@zcode/contracts";
 import type { TurnAttachment } from "@zcode/core";
+import { AUTOMATION_DEFINITION_TOOL_NAMES } from "@zcode/shared";
 import type { ZCodeAutomationBotDeliveryTarget } from "@zcode/shared";
 import type { SendInputOptions, SendInputResult } from "../../app/types.js";
 import { runWithSessionResidencyFinalization } from "../../zcode-protocol/session-residency.js";
@@ -221,7 +222,7 @@ function buildTurnToolDisallowlist(
   const tools = new Set(params.toolDisallowlist ?? []);
   if (activeAutomationId) {
     // automation 派发漏传身份时，后续 model step 会重新暴露 Cron 写工具。
-    for (const toolName of AUTOMATION_MUTATION_TOOL_NAMES) tools.add(toolName);
+    for (const toolName of AUTOMATION_DEFINITION_TOOL_NAMES) tools.add(toolName);
   }
   if (activeOffPeakTaskId) {
     // 闲时派发轮隐藏 OffPeakCreate（防递归自我派生）；OffPeakList 只读保留。
@@ -273,8 +274,10 @@ export function turnBackgroundAttributionOf(params: {
 }
 
 const AUTOMATION_INPUT_ID_PREFIX = "automation-";
-const AUTOMATION_MUTATION_TOOL_NAMES = ["CronCreate", "CronUpdate", "CronDelete"] as const;
-// 独立常量，绝不并入 AUTOMATION_MUTATION_TOOL_NAMES（cron 轮放行 OffPeakCreate）。
+// 单一事实源在 @zcode/shared automation-types（AUTOMATION_DEFINITION_TOOL_NAMES）：
+// 只隐藏任务定义写工具，CronDelete 刻意可见——执行轮可删除触发本轮的 automation 做
+// 自清理，范围校验在 CronDelete handler（只放行 currentTurnAutomationId）。
+// 独立常量，绝不并入 AUTOMATION_DEFINITION_TOOL_NAMES（cron 轮放行 OffPeakCreate）。
 // 与 core turn-loop-state 同值——闲时轮同时隐藏 SendMessage / Workflow（两者会在本轮
 // modelExecution 之外重启子 Agent）。
 const OFF_PEAK_INPUT_ID_PREFIX = "offpeak-";
