@@ -104,7 +104,7 @@ if [ ${#merged[@]} -eq 0 ]; then
   exit 0
 fi
 
-if ! git push "$REMOTE" HEAD:"$INTEGRATION_BRANCH" >/dev/null 2>&1; then
+if ! git push "$REMOTE" HEAD:"$INTEGRATION_BRANCH" 2>&1 | grep -v "^remote:\|To github\|$" | sed 's/^/[consolidate] push: /'; then
   log "ERROR: push to $REMOTE failed; nothing published"
   cd "$REPO_ROOT" && git worktree remove "$WORKTREE" --force >/dev/null 2>&1
   git branch -D consolidate/run >/dev/null 2>&1
