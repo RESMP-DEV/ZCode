@@ -142,7 +142,9 @@ const cronListHandler: ToolHandler = async (input, context) => {
     automations: automations.map((automation) => ({
       ...toModelAutomation(automation),
       // automation 执行轮内标记触发本轮的条目，供模型免标题匹配地做 scoped CronDelete 自清理。
-      ...(context.currentTurnAutomationId === automation.automationId
+      // 必须同时要求 automationTurn：执行轮身份缺失（旧 host 漏传）时 currentTurnAutomationId
+      // 为空、标记自然不出现；而交互轮即使偶然携带同名字段也不是"本轮触发"，不得标记。
+      ...(context.automationTurn && context.currentTurnAutomationId === automation.automationId
         ? { isCurrentTurnAutomation: true }
         : {}),
     })),
