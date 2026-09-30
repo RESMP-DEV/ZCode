@@ -13,7 +13,7 @@
 
 1. **可见性**：执行轮的 turn-scoped denylist 只合并 `CronCreate` / `CronUpdate`；`CronList`（只读）与 `CronDelete`（受限）保持可见。可见性判定（`isAutomationMutationRestrictedTurn`）保留 denylist 兜底信号——兜底误伤只是继续隐藏本就禁用的工具，不改变权限语义。
 2. **执行边界最终校验**：`CronDelete` handler 在 `automationTurn === true` 时要求 `input.id === currentTurnAutomationId`，否则 `PermissionDenied`；身份缺失（无 automationId）时保守拒绝（fail closed）。执行边界的 `automationTurn` 标志只认正向身份（`hasPositiveAutomationTurnIdentity`：显式 `automationId` 或 `automation-` 前缀 queryId），**不使用 denylist 兜底**——普通交互轮也可能恰好同时禁用 `CronCreate` + `CronUpdate`，兜底会把这类 turn 误判为执行轮并拒绝其全部 `CronDelete`。
-2a. **审批收窄**：CronDelete 默认 `ask`；定时执行轮没有权限响应者，弹窗永远无人应答，自清理无法完成。`prepareApproval` 钩子收到 turn 范围事实（`automationTurn` + `currentTurnAutomationId`），仅当「确为 automation 轮且 `input.id === currentTurnAutomationId`」时把 ask 收窄为 proceed。deny 规则与 PreToolUse hook 在更早边界评估，不受影响；交互轮与其他 id 保持 ask；handler 内 `assertCronDeleteAllowed` 独立复核同一身份（纵深防御）。
+   2a. **审批收窄**：CronDelete 默认 `ask`；定时执行轮没有权限响应者，弹窗永远无人应答，自清理无法完成。`prepareApproval` 钩子收到 turn 范围事实（`automationTurn` + `currentTurnAutomationId`），仅当「确为 automation 轮且 `input.id === currentTurnAutomationId`」时把 ask 收窄为 proceed。deny 规则与 PreToolUse hook 在更早边界评估，不受影响；交互轮与其他 id 保持 ask；handler 内 `assertCronDeleteAllowed` 独立复核同一身份（纵深防御）。
 3. **自识别**：`CronList` 输出为匹配 `currentTurnAutomationId` 的条目附加 `isCurrentTurnAutomation: true`（仅 CronList 投影，additive optional 字段），让执行轮无需标题匹配即可找到自己。
 
 ## 事件顺序与幂等
@@ -23,13 +23,13 @@
 
 ## 失败语义
 
-| 场景 | 行为 |
-| --- | --- |
-| 执行轮删除非自身 automation | 审批保持 ask；无响应者即不执行，即使执行 handler 也会 `PermissionDenied` |
-| 执行轮删除自身（自清理） | `prepareApproval` 收窄为 proceed，无需响应者即执行；handler 复核身份 |
-| 执行轮身份缺失时任何 CronDelete | `PermissionDenied`（fail closed） |
-| 普通交互轮恰好 deny `CronCreate` + `CronUpdate` | 不是执行轮：`automationTurn === false`，任意 id 可删，走正常审批 |
-| 非执行轮（常规交互轮） | 行为不变：任意 id 可删，走正常审批 |
+| 场景                                            | 行为                                                                     |
+| ----------------------------------------------- | ------------------------------------------------------------------------ |
+| 执行轮删除非自身 automation                     | 审批保持 ask；无响应者即不执行，即使执行 handler 也会 `PermissionDenied` |
+| 执行轮删除自身（自清理）                        | `prepareApproval` 收窄为 proceed，无需响应者即执行；handler 复核身份     |
+| 执行轮身份缺失时任何 CronDelete                 | `PermissionDenied`（fail closed）                                        |
+| 普通交互轮恰好 deny `CronCreate` + `CronUpdate` | 不是执行轮：`automationTurn === false`，任意 id 可删，走正常审批         |
+| 非执行轮（常规交互轮）                          | 行为不变：任意 id 可删，走正常审批                                       |
 
 ## 验收场景
 
