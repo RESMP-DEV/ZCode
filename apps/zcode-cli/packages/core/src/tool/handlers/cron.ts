@@ -282,7 +282,7 @@ export const cronListToolEntry: ToolEntry = {
     name: "CronList",
     description: "List scheduled automations in the current workspace.",
     modelInstructions: [
-      "Inside a scheduled automation run, exactly one entry carries isCurrentTurnAutomation: true — the automation that triggered this run. Use that id (not title matching) for end-of-life self-cleanup.",
+      "Inside a scheduled automation run, the entry carrying isCurrentTurnAutomation: true is the automation that triggered this run; use that id (not title matching) for end-of-life self-cleanup. If no entry carries the marker, this run's triggering identity was not resolved: do not guess an id or call CronDelete — finish the turn without self-cleanup.",
     ],
     readOnly: true,
     destructive: false,
@@ -383,8 +383,8 @@ export const cronDeleteToolEntry: ToolEntry = {
       "Delete a scheduled automation from the current workspace by automation id. Inside a scheduled automation run, only the automation that triggered the current run may be deleted (self-cleanup once its work is permanently finished).",
     modelInstructions: [
       "Use CronList first when the automation id is not already known. Never guess an automation id.",
-      "Inside a scheduled automation run, CronList marks the entry whose isCurrentTurnAutomation is true: that is the automation that triggered this run. When its work is permanently finished (for example the monitored PR merged or the user cancelled the loop), CronDelete that id so the schedule stops firing; this self-cleanup is the built-in end-of-life path for loop-shaped automations.",
-      "Deleting a different automation during a scheduled run is rejected. Report to the user and let them delete it from a regular interactive turn instead.",
+      "Inside a scheduled automation run, CronList marks the entry whose isCurrentTurnAutomation is true: that is the automation that triggered this run. When its work is permanently finished (for example the monitored PR merged or the user cancelled the loop), CronDelete that id so the schedule stops firing; this self-cleanup is the built-in end-of-life path for loop-shaped automations. If no entry is marked, this run's identity was not resolved: skip self-cleanup this turn instead of guessing an id.",
+      "Deleting a different automation during a scheduled run is denied without an approval prompt. Report to the user and let them delete it from a regular interactive turn instead.",
     ],
     readOnly: false,
     destructive: true,
