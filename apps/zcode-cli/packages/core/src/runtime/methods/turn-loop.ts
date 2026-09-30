@@ -22,8 +22,8 @@ import {
 } from "../../agent/message-history.js";
 import type { AgentRuntimeInternal } from "../internal.js";
 import { runModelBackedTurnStep } from "./turn-model-step.js";
+import { AUTOMATION_DEFINITION_TOOL_NAMES } from "@zcode/shared";
 import {
-  AUTOMATION_MUTATION_TOOL_NAMES,
   evaluateRapidRefill,
   isAutomationMutationRestrictedTurn,
   isOffPeakCreateRestrictedTurn,
@@ -225,7 +225,7 @@ function buildTurnDisallowedTools(state: RegularTurnLoopState): Set<string> | nu
     // 保留 CronList 供只读查询；CronCreate/CronUpdate 在 provider 请求边界隐藏。
     // CronDelete 同样保留可见：执行轮删除触发本轮的 automation（自清理）合法，
     // 范围校验（只放行 currentTurnAutomationId）由 CronDelete handler 执行边界负责。
-    for (const toolName of AUTOMATION_MUTATION_TOOL_NAMES) {
+    for (const toolName of AUTOMATION_DEFINITION_TOOL_NAMES) {
       tools.add(toolName);
     }
   }
