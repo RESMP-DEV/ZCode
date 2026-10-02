@@ -41,6 +41,13 @@ const terminalStatuses = "'completed','failed','cancelled'";
 const activePredicate = `session_id IS NOT NULL AND status NOT IN (${terminalStatuses})`;
 const boundIndex = `CREATE UNIQUE INDEX IF NOT EXISTS idx_off_peak_bound_active ON off_peak_tasks(workspace_key,session_id) WHERE ${activePredicate}`;
 
+// 归档行清未读（specs/archived-task-unread-invariant.md）：旧版本会把后台终态未读
+// 写进已归档行（cron automation 复用归档 task 行继续运行），可见列表排除归档行，
+// 残留 unread_at 变成 dock badge 上永不消除的僵尸未读，且自动归档/session sweep
+// 守卫都拒绝 unread 行，无法自愈。迁移一次性清零；写路径守卫防止再产生。
+const ARCHIVED_CLEAR_UNREAD_MIGRATION_SQL =
+  "UPDATE tasks SET unread_at = NULL WHERE archived = 1 AND unread_at IS NOT NULL";
+
 // 与 Agent 同样是库级串行事务，但不跨域依赖其具体 adapter。TS 转换使用冻结语义版本，
 // 禁用 function.toString 哈希：Electron/SEA 打包会改变函数文本而非迁移语义。
 const definitions = [
@@ -63,6 +70,10 @@ const definitions = [
   {
     id: "0003_official_glm_selection",
     checksumInput: [OFFICIAL_GLM_SELECTION_MIGRATION_SQL],
+  },
+  {
+    id: "0004_archived_clear_unread",
+    checksumInput: [ARCHIVED_CLEAR_UNREAD_MIGRATION_SQL],
   },
 ] as const;
 
@@ -113,6 +124,8 @@ export function runTasksDatabaseMigrations(
       options.onProgress?.("migrating", { ...migrationFacts });
       if (migration.id === "0001_adopt_task_schema") adoptSchema(db);
       else if (migration.id === "0002_provider_selection") importLegacyAutomationSelections(db);
+      else if (migration.id === "0004_archived_clear_unread")
+        db.exec(ARCHIVED_CLEAR_UNREAD_MIGRATION_SQL);
       else db.exec(OFFICIAL_GLM_SELECTION_MIGRATION_SQL);
       migrationFacts.executedCount++;
       db.prepare("INSERT INTO tasks_schema_migration VALUES(?,?,?)").run(

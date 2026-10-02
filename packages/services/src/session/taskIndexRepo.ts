@@ -1916,6 +1916,13 @@ export class TaskIndexRepo {
           throw new Error(`task index 中不存在 task: ${params.taskId}`);
         }
         const current = rowToMeta(row);
+        // 归档即视为用户已处理（specs/archived-task-unread-invariant.md）：archived 行
+        // 不允许持有 unread。可见列表按 membership 排除归档行，蓝点与 dock badge 都
+        // 读不到它；cron automation 会复用已归档 task 行继续后台运行，终态未读写回
+        // 归档行会生成永远无法清除的僵尸未读（自动归档与 session sweep 守卫都拒绝
+        // unread 行）。因此归档写入顺带清未读，已归档行上的未读写请求一律拒绝，
+        // 且对已归档行的任何状态写都重新断言 unread_at IS NULL（读侧自愈收敛）。
+        const willBeArchived = params.patch.archived === true || row.archived === 1;
         // 毫秒时间戳可能让同一 task 的两个逻辑未读得到相同版本，
         // 且清除 unreadAt 后只看当前值会再次复用旧版本。必须在 SQLite 写锁内
         // 基于不会随清除重置的持久 watermark 分配严格递增 marker。
@@ -1924,11 +1931,13 @@ export class TaskIndexRepo {
           row.unread_at ?? 0,
           current.unreadAt ?? 0,
         );
-        const unreadAt = allocatingUnreadAt
-          ? Math.max(requestedUnreadAt, lastUnreadAt + 1)
-          : "unreadAt" in params.patch
-            ? undefined
-            : current.unreadAt;
+        const unreadAt = willBeArchived
+          ? undefined
+          : allocatingUnreadAt
+            ? Math.max(requestedUnreadAt, lastUnreadAt + 1)
+            : "unreadAt" in params.patch
+              ? undefined
+              : current.unreadAt;
         const nextMeta: ZCodeTaskMeta = {
           ...current,
           title: params.patch.title ?? current.title,
@@ -1953,7 +1962,9 @@ export class TaskIndexRepo {
           archived: params.patch.archived ?? row.archived === 1,
           deleted: params.patch.deleted ?? row.deleted === 1,
           titleOverridden: params.patch.titleOverridden ?? row.title_overridden === 1,
-          writeUnreadAt: mutatingUnreadAt,
+          // 归档/已归档路径强制清未读（见上方 willBeArchived 注释），必须随写落盘，
+          // 不能走「键缺席=保留现值」的默认分支，否则存量僵尸行无法自愈。
+          writeUnreadAt: mutatingUnreadAt || willBeArchived,
         });
         if (deleting) {
           // 删除标记和 grouped 引用必须原子提交；否则任一写入失败都会让

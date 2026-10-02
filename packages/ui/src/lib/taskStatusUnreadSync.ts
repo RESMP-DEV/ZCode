@@ -76,11 +76,28 @@ export function syncTaskUnreadFromStatusWorkspaceEvent(params: {
 }): void {
   const { event, service } = params;
   const taskId = event.taskId ?? event.taskMeta?.taskId;
-  if (
-    !taskId ||
-    event.reason !== "task_status_changed" ||
-    event.unreadSignal !== "background_terminal"
-  ) {
+  if (!taskId) {
+    return;
+  }
+
+  if (event.reason === "task_archived") {
+    // 归档即视为已处理（specs/archived-task-unread-invariant.md）：与 tasks-index 的
+    // 「archived 行不持未读」不变量镜像。本端与远端归档都会 emit task_archived；
+    // 可见列表会移除归档行，但 dock badge 读 optimistic 池/兼容 map，若不在此清理，
+    // 归档前残留的未读会变成 UI 内无处展示、badge 永不清零的僵尸未读。
+    const targetTask = {
+      taskId,
+      workspacePath: event.workspacePath,
+      ...(event.workspaceIdentity ? { workspaceIdentity: event.workspaceIdentity } : {}),
+    };
+    rollbackTaskQueryCacheUnread(targetTask, undefined);
+    useZCodeSessionStore
+      .getState()
+      .setTaskUnreadIndicator(event.workspacePath, taskId, false, event.workspaceIdentity);
+    return;
+  }
+
+  if (event.reason !== "task_status_changed" || event.unreadSignal !== "background_terminal") {
     return;
   }
 
@@ -142,7 +159,22 @@ export function syncTaskUnreadFromStatusWorkspaceEvent(params: {
     .then((meta) => {
       // 服务端先更新 tasks-index 再回包；只对账 unreadAt 字段，禁止整份 meta
       // 覆盖 sessions-index activity，避免后台完成或未读写入改变 Updated 排序。
-      const committedUnreadAt = meta.unreadAt ?? optimisticUnreadAt;
+      const committedUnreadAt = meta.unreadAt;
+      if (typeof committedUnreadAt !== "number") {
+        // 回包没有 unreadAt = 服务端拒绝落库（唯一已知情形：task 已归档，
+        // 归档行不持未读）。不能用乐观值顶替，否则 dock badge/蓝点会留下
+        // renderer-only 假未读；回滚到提交前状态并标脏让 membership 读取收敛。
+        rollbackTaskQueryCacheUnread(targetTask, previousUnreadAt);
+        store.setTaskUnreadIndicator(
+          event.workspacePath,
+          taskId,
+          previousLegacyUnread,
+          event.workspaceIdentity,
+        );
+        markTaskQueryCacheScopesStale([targetTask]);
+        bumpTaskListMembershipVersion();
+        return;
+      }
       reconcileTaskQueryCacheUnread(targetTask, committedUnreadAt);
       store.setTaskUnreadIndicator(event.workspacePath, taskId, true, event.workspaceIdentity);
     })
