@@ -65,7 +65,12 @@ test("plan 只返回满足全部守卫的候选", async () => {
       }),
     });
     await repo.syncTaskMeta({
-      meta: buildMeta({ taskId: "ok-archived", workspacePath: "/w", updatedAt: old }),
+      meta: buildMeta({
+        taskId: "ok-archived",
+        workspacePath: "/w",
+        updatedAt: old,
+        status: "completed",
+      }),
     });
     await repo.updateTaskState({
       workspacePath: "/w",
@@ -220,6 +225,28 @@ test("手动归档走 1 天宽限；未归档终态仍需满 minAgeDays", async 
       "archived row passes the 1-day grace measured from archived_at",
     );
 
+    await repo.syncTaskMeta({
+      meta: buildMeta({
+        taskId: "arch-running",
+        workspacePath: "/w",
+        updatedAt: now - 20 * DAY_MS,
+        status: "running",
+      }),
+    });
+    await repo.updateTaskState({
+      workspacePath: "/w",
+      taskId: "arch-running",
+      patch: { archived: true },
+    });
+    repo["getDatabase"]()
+      .prepare("UPDATE tasks SET archived_at = ? WHERE task_id = ?")
+      .run(twoDaysAgo, "arch-running");
+    const runningPlan = await planSessionSweep(repo, {});
+    assert.ok(
+      !runningPlan.candidates.some((candidate) => candidate.taskId === "arch-running"),
+      "archival never substitutes for a terminal status",
+    );
+
     // 解除归档清空锚点：重新归档会重新起算宽限。
     await repo.updateTaskState({
       workspacePath: "/w",
@@ -267,6 +294,18 @@ test("孤儿 cron transcript 可清理；存活 automation 的 run 仍受保护"
     const ids = plan.candidates.map((c) => c.taskId);
     assert.ok(ids.includes("cron-orphan"), "orphaned cron transcript should be eligible");
     assert.ok(!ids.includes("cron-live"), "live automation transcript stays protected");
+
+    // Plan 与 execute 之间 automation 恢复/重建：事务内 recheck 仍必须拒绝。
+    repo["getDatabase"]().exec(
+      `INSERT INTO automations (automation_id, title, cron_expr, prompt, workspace_key, workspace_path, created_at, updated_at, next_run_at)
+       VALUES ('automation-dead', 't', '* * * * *', 'p', '/w', '/w', 1, 1, 1)`,
+    );
+    const executed = await repo.sweepDeleteTasks({ taskIds: ["cron-orphan", "cron-live"] });
+    assert.deepEqual(executed.deleted.map((meta) => meta.taskId), []);
+    assert.deepEqual(executed.skipped, [
+      { taskId: "cron-orphan", reason: "guard_recheck_failed" },
+      { taskId: "cron-live", reason: "guard_recheck_failed" },
+    ]);
   });
 });
 
