@@ -72,6 +72,11 @@ test("plan 只返回满足全部守卫的候选", async () => {
       taskId: "ok-archived",
       patch: { archived: true },
     });
+    // 手动归档会把 archived_at 打点为当前时刻（宽限从此起算）；回拨到 old
+    // 模拟宽限已过，使该行回到「已归档且过期」的可清理侧。
+    repo["getDatabase"]()
+      .prepare("UPDATE tasks SET archived_at = ? WHERE task_id = ?")
+      .run(old, "ok-archived");
     // 不可清理矩阵：近期、运行中、钉住、未读、带阻塞交互。
     await repo.syncTaskMeta({
       meta: buildMeta({
@@ -176,7 +181,8 @@ test("execute 备份快照、tombstone 行、并跳过守卫复核失败项", as
 test("手动归档走 1 天宽限；未归档终态仍需满 minAgeDays", async () => {
   await withSweepEnv(async (repo, _root, now) => {
     const twoDaysAgo = now - 2 * DAY_MS;
-    // 已归档 + 2 天前活跃：过 1 天宽限，不过 3 天门槛 → 应可清理。
+    // 手动归档 = 用户此刻的「已完成」信号：1 天宽限从归档动作（archived_at）
+    // 起算，与该行先前的 updated_at 无关——归档一个两天没动的任务不能立刻可清理。
     await repo.syncTaskMeta({
       meta: buildMeta({
         taskId: "arch-2d",
@@ -199,10 +205,31 @@ test("手动归档走 1 天宽限；未归档终态仍需满 minAgeDays", async 
         status: "completed",
       }),
     });
-    const plan = await planSessionSweep(repo, {});
-    const ids = plan.candidates.map((c) => c.taskId);
-    assert.ok(ids.includes("arch-2d"), "archived row should pass the 1-day grace");
-    assert.ok(!ids.includes("live-2d"), "unarchived terminal row must still wait out minAgeDays");
+    const freshPlan = await planSessionSweep(repo, {});
+    const freshIds = freshPlan.candidates.map((c) => c.taskId);
+    assert.ok(!freshIds.includes("arch-2d"), "manual archive restarts the 1-day grace from now");
+    assert.ok(!freshIds.includes("live-2d"), "unarchived terminal row must still wait out minAgeDays");
+
+    // 宽限过期：archived_at 退回 2 天前（模拟时间流逝）→ 过 1 天宽限，可清理。
+    repo["getDatabase"]()
+      .prepare("UPDATE tasks SET archived_at = ? WHERE task_id = ?")
+      .run(twoDaysAgo, "arch-2d");
+    const agedPlan = await planSessionSweep(repo, {});
+    assert.ok(
+      agedPlan.candidates.some((c) => c.taskId === "arch-2d"),
+      "archived row passes the 1-day grace measured from archived_at",
+    );
+
+    // 解除归档清空锚点：重新归档会重新起算宽限。
+    await repo.updateTaskState({
+      workspacePath: "/w",
+      taskId: "arch-2d",
+      patch: { archived: false },
+    });
+    const cleared = repo["getDatabase"]()
+      .prepare("SELECT archived_at FROM tasks WHERE task_id = ?")
+      .get("arch-2d") as { archived_at: number | null };
+    assert.equal(cleared.archived_at, null, "unarchive clears the archived_at anchor");
   });
 });
 

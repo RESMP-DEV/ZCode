@@ -73,6 +73,7 @@ interface TaskIndexRow {
   last_unread_at: number;
   pinned: number;
   archived: number;
+  archived_at: number | null;
   deleted: number;
   title_overridden: number;
   searchable_text: string;
@@ -935,6 +936,8 @@ export class TaskIndexRepo {
     }
 
     const archiveTask = this.getDatabase().prepare(
+      // 自动归档不打 archived_at：这类行 updated_at 本就 ≥3 天，sweep 宽限
+      // 仍按 updated_at 计（COALESCE 回退），保持到期即可清理的既有节奏。
       `UPDATE tasks
       SET archived = 1
       WHERE workspace_key = ? AND task_id = ?`,
@@ -1069,11 +1072,12 @@ export class TaskIndexRepo {
     // 会话永远无法被 sweep，成为永久泄漏。
     "(cron_automation_id IS NULL OR NOT EXISTS (SELECT 1 FROM automations a WHERE a.automation_id = tasks.cron_automation_id AND a.enabled = 1 AND a.lifecycle_status = 'active'))",
     "off_peak_task_id IS NULL",
-    // 年龄门槛按归档状态分级：手动归档 = 用户显式的「已完成」信号，走固定 1 天
-    // 宽限（参数顺序：第一个 ? 是归档宽限 cutoff，第二个是常规 cutoff）；
-    // 未归档终态行走 minAgeDays（默认 3 天）。auto-archive 产生的归档行本就
-    // ≥3 天，分级只对用户手动归档生效。
-    "((archived = 1 AND updated_at < ?) OR (archived = 0 AND updated_at < ?))",
+    // 年龄门槛按归档状态分级：手动归档 = 用户显式的「已完成」信号，宽限从归档
+    // 动作时刻（archived_at）起算固定 1 天——归档一个两天没动的任务不能立刻
+    // 可清理。参数顺序：第一个 ? 是归档宽限 cutoff，第二个是常规 cutoff。
+    // 未打点的行（auto-archive / 存量数据）退回 updated_at 保持原行为；
+    // 未归档终态行走 minAgeDays（默认 3 天）。
+    "((archived = 1 AND COALESCE(archived_at, updated_at) < ?) OR (archived = 0 AND updated_at < ?))",
   ];
 
   /** 钉住侧候选：同款守卫但 pinned=1 —— 终态/归档、无未读无阻塞、过期的钉住会话。 */
@@ -1087,11 +1091,12 @@ export class TaskIndexRepo {
     // 会话永远无法被 sweep，成为永久泄漏。
     "(cron_automation_id IS NULL OR NOT EXISTS (SELECT 1 FROM automations a WHERE a.automation_id = tasks.cron_automation_id AND a.enabled = 1 AND a.lifecycle_status = 'active'))",
     "off_peak_task_id IS NULL",
-    // 年龄门槛按归档状态分级：手动归档 = 用户显式的「已完成」信号，走固定 1 天
-    // 宽限（参数顺序：第一个 ? 是归档宽限 cutoff，第二个是常规 cutoff）；
-    // 未归档终态行走 minAgeDays（默认 3 天）。auto-archive 产生的归档行本就
-    // ≥3 天，分级只对用户手动归档生效。
-    "((archived = 1 AND updated_at < ?) OR (archived = 0 AND updated_at < ?))",
+    // 年龄门槛按归档状态分级：手动归档 = 用户显式的「已完成」信号，宽限从归档
+    // 动作时刻（archived_at）起算固定 1 天——归档一个两天没动的任务不能立刻
+    // 可清理。参数顺序：第一个 ? 是归档宽限 cutoff，第二个是常规 cutoff。
+    // 未打点的行（auto-archive / 存量数据）退回 updated_at 保持原行为；
+    // 未归档终态行走 minAgeDays（默认 3 天）。
+    "((archived = 1 AND COALESCE(archived_at, updated_at) < ?) OR (archived = 0 AND updated_at < ?))",
   ];
 
   private sessionSweepGuardHolds(
@@ -1114,7 +1119,10 @@ export class TaskIndexRepo {
         .get(row.cron_automation_id);
       if (live) return false;
     }
-    if (row.updated_at >= (row.archived === 1 ? archivedCutoff : fullCutoff)) return false;
+    // 与 SQL 谓词同语义：归档行宽限锚点为 archived_at（手动归档打点），
+    // 未打点退回 updated_at。
+    const sweepClock = row.archived === 1 ? (row.archived_at ?? row.updated_at) : row.updated_at;
+    if (sweepClock >= (row.archived === 1 ? archivedCutoff : fullCutoff)) return false;
     // meta 仍带阻塞交互 = 还有等用户的动作，一律不删。
     return rowToMeta(row).pendingInteraction == null;
   }
@@ -1136,7 +1144,7 @@ export class TaskIndexRepo {
           workspace_key, workspace_path, workspace_identity, task_id, title, task_status,
           provider, mode, model, migration_source, forked_from_task_id, cron_automation_id,
           off_peak_task_id, created_at, updated_at, unread_at, last_unread_at, pinned,
-          archived, deleted, title_overridden, searchable_text, meta_json
+          archived, archived_at, deleted, title_overridden, searchable_text, meta_json
         FROM tasks
         WHERE ${TaskIndexRepo.SESSION_SWEEP_GUARD_SQL.join(" AND ")}
         ORDER BY updated_at ASC, created_at ASC, task_id ASC
@@ -1173,7 +1181,7 @@ export class TaskIndexRepo {
           workspace_key, workspace_path, workspace_identity, task_id, title, task_status,
           provider, mode, model, migration_source, forked_from_task_id, cron_automation_id,
           off_peak_task_id, created_at, updated_at, unread_at, last_unread_at, pinned,
-          archived, deleted, title_overridden, searchable_text, meta_json
+          archived, archived_at, deleted, title_overridden, searchable_text, meta_json
         FROM tasks
         WHERE ${TaskIndexRepo.SESSION_SWEEP_PINNED_GUARD_SQL.join(" AND ")}
         ORDER BY updated_at ASC, created_at ASC, task_id ASC
@@ -1999,6 +2007,20 @@ export class TaskIndexRepo {
           // 不能走「键缺席=保留现值」的默认分支，否则存量僵尸行无法自愈。
           writeUnreadAt: mutatingUnreadAt || willBeArchived,
         });
+        // 归档宽限锚点（specs/session-sweeper.md）：手动归档是用户此刻的「已完成」
+        // 信号，1 天宽限从归档动作起算（archived_at），与该行先前的 updated_at
+        // 无关——否则归档一个两天没动的任务会立刻可清理。解除归档清空锚点，
+        // 重新归档重新起算。auto-archive（archiveStaleTasks）不打点，存量行为经
+        // COALESCE(archived_at, updated_at) 保持不变。
+        if (params.patch.archived === true && row.archived !== 1) {
+          database
+            .prepare("UPDATE tasks SET archived_at = ? WHERE workspace_key = ? AND task_id = ?")
+            .run(Date.now(), row.workspace_key, row.task_id);
+        } else if (params.patch.archived === false && row.archived === 1) {
+          database
+            .prepare("UPDATE tasks SET archived_at = NULL WHERE workspace_key = ? AND task_id = ?")
+            .run(row.workspace_key, row.task_id);
+        }
         if (deleting) {
           // 删除标记和 grouped 引用必须原子提交；否则任一写入失败都会让
           // sessions-index 内容、task 可见性和 SQLite 分组归属长期处于互相矛盾的状态。

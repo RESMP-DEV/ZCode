@@ -48,6 +48,12 @@ const boundIndex = `CREATE UNIQUE INDEX IF NOT EXISTS idx_off_peak_bound_active 
 const ARCHIVED_CLEAR_UNREAD_MIGRATION_SQL =
   "UPDATE tasks SET unread_at = NULL WHERE archived = 1 AND unread_at IS NOT NULL";
 
+// Session sweep 归档宽限锚点（specs/session-sweeper.md）：手动归档行以归档时刻
+// （archived_at）起算固定 1 天宽限，与该行先前的 updated_at 无关。纯加列且不回填：
+// 存量行保持 NULL，守卫谓词 COALESCE(archived_at, updated_at) 退回旧行为
+// （迁移前后 sweep 时点完全一致），打点只发生在新的手动归档 0→1 转换上。
+const ARCHIVED_AT_COLUMN_MIGRATION_SQL = "ALTER TABLE tasks ADD COLUMN archived_at INTEGER";
+
 // 与 Agent 同样是库级串行事务，但不跨域依赖其具体 adapter。TS 转换使用冻结语义版本，
 // 禁用 function.toString 哈希：Electron/SEA 打包会改变函数文本而非迁移语义。
 const definitions = [
@@ -74,6 +80,10 @@ const definitions = [
   {
     id: "0004_archived_clear_unread",
     checksumInput: [ARCHIVED_CLEAR_UNREAD_MIGRATION_SQL],
+  },
+  {
+    id: "0005_task_archived_at",
+    checksumInput: [ARCHIVED_AT_COLUMN_MIGRATION_SQL],
   },
 ] as const;
 
@@ -126,6 +136,7 @@ export function runTasksDatabaseMigrations(
       else if (migration.id === "0002_provider_selection") importLegacyAutomationSelections(db);
       else if (migration.id === "0004_archived_clear_unread")
         db.exec(ARCHIVED_CLEAR_UNREAD_MIGRATION_SQL);
+      else if (migration.id === "0005_task_archived_at") db.exec(ARCHIVED_AT_COLUMN_MIGRATION_SQL);
       else db.exec(OFFICIAL_GLM_SELECTION_MIGRATION_SQL);
       migrationFacts.executedCount++;
       db.prepare("INSERT INTO tasks_schema_migration VALUES(?,?,?)").run(
