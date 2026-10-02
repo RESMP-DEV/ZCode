@@ -42,7 +42,16 @@ for ref in $(git for-each-ref --format='%(refname:short)' refs/heads/); do
   [ "$ref" = "$INTEGRATION_BRANCH" ] && continue
   ahead=$(git rev-list --count "$INTEGRATION_BRANCH..$ref" 2>/dev/null) || continue
   [ "$ahead" -gt 0 ] 2>/dev/null || continue
-  git show-ref --verify --quiet "refs/remotes/$REMOTE/$ref" || wip_locals+=("$ref ($ahead ahead, unpushed)")
+  remote_ref="refs/remotes/$REMOTE/$ref"
+  # 远端分支已存在时本地仍可能领先（含分叉）：有未推送提交就要报告，
+  # 否则脚本会谎报「nothing to consolidate」而隐藏未推送的工作。
+  if git show-ref --verify --quiet "$remote_ref"; then
+    if ! git merge-base --is-ancestor "$ref" "$remote_ref" 2>/dev/null; then
+      wip_locals+=("$ref ($ahead ahead of $INTEGRATION_BRANCH, has unpushed commits)")
+    fi
+  else
+    wip_locals+=("$ref ($ahead ahead, unpushed)")
+  fi
 done
 
 for w in ${wip_locals[@]+"${wip_locals[@]}"}; do
@@ -65,14 +74,40 @@ if git show-ref --verify --quiet "$remote_ref"; then
     log "note: basing on $REMOTE/$INTEGRATION_BRANCH (local ref is behind)"
   fi
 fi
-git worktree remove "$WORKTREE" --force >/dev/null 2>&1
-if ! git worktree add "$WORKTREE" -b consolidate/run "$base_ref" >/dev/null 2>&1; then
+# 所有权标记：只有本脚本创建的 worktree（带 .zcode-consolidate-owner）才允许
+# 强制清理；路径被外部占用且不干净时中止，绝不吞掉别人的未提交工作。
+owner_marker="$WORKTREE/.zcode-consolidate-owner"
+if [ -e "$WORKTREE" ]; then
+  if git worktree list --porcelain 2>/dev/null | grep -qx "worktree $WORKTREE"; then
+    if [ -n "$(git -C "$WORKTREE" status --porcelain 2>/dev/null)" ] && [ ! -f "$owner_marker" ]; then
+      log "ERROR: $WORKTREE has uncommitted changes and no ownership marker; preserving it"
+      exit 1
+    fi
+    git worktree remove "$WORKTREE" --force >/dev/null 2>&1
+  else
+    log "ERROR: $WORKTREE exists but is not a registered worktree; preserving it"
+    exit 1
+  fi
+fi
+# -B 复位残留的 consolidate/run：上次运行中断后分支仍在时，-b 会拒绝创建。
+if ! git worktree add "$WORKTREE" -B consolidate/run "$base_ref" >/dev/null 2>&1; then
   log "ERROR: worktree setup failed"
   exit 1
 fi
+: > "$owner_marker"
+# 中断安全的清理：注册 EXIT 陷阱，成功与失败路径统一回收本轮资源。
+cleanup() {
+  git -C "$REPO_ROOT" worktree remove "$WORKTREE" --force >/dev/null 2>&1 || true
+  git -C "$REPO_ROOT" branch -D consolidate/run >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
 cd "$WORKTREE" || { log "ERROR: cannot enter worktree"; exit 1; }
 
-pnpm install --frozen-lockfile >/dev/null 2>&1 || log "WARN: pnpm install failed; typecheck may fail spuriously"
+# 依赖安装是基础设施前提：失败继续跑会让每个候选都因缺依赖被误判 typecheck 失败。
+if ! pnpm install --frozen-lockfile >/dev/null 2>&1; then
+  log "ERROR: pnpm install failed; aborting before candidate evaluation"
+  exit 1
+fi
 
 merged=()
 skipped=()
@@ -80,11 +115,22 @@ last_good=$(git rev-parse HEAD)
 for b in ${candidates[@]+"${candidates[@]}"}; do
   ref="refs/remotes/$REMOTE/$b"
   if git merge --no-ff "$ref" -m "merge: consolidate $b into $INTEGRATION_BRANCH" >/dev/null 2>&1; then
-    if pnpm typecheck >/dev/null 2>&1; then
+    # 候选改了 lockfile 时必须按合并后的 lockfile 重装，否则用基准依赖树
+    # typecheck 会把引入新依赖的合法合并误判为失败。
+    install_ok=1
+    if ! git diff --quiet "$last_good" HEAD -- pnpm-lock.yaml 2>/dev/null; then
+      install_ok=0
+      pnpm install --frozen-lockfile >/dev/null 2>&1 && install_ok=1
+    fi
+    if [ "$install_ok" -eq 1 ] && pnpm typecheck >/dev/null 2>&1; then
       if [ "$(git rev-parse HEAD)" != "$last_good" ]; then
         last_good=$(git rev-parse HEAD)
         merged+=("$b")
       fi
+    elif [ "$install_ok" -eq 0 ]; then
+      # 合并后依赖装不上：回退并单列原因，与 typecheck 失败区分。
+      git reset --hard "$last_good" >/dev/null 2>&1
+      skipped+=("$b (install)")
     else
       # 该分支合并破坏 typecheck：回退到上一个绿色点，只跳过这一支。
       git reset --hard "$last_good" >/dev/null 2>&1
@@ -99,15 +145,17 @@ done
 if [ ${#merged[@]} -eq 0 ]; then
   for s in ${skipped[@]+"${skipped[@]}"}; do log "skipped: $s"; done
   log "no branches merged"
-  cd "$REPO_ROOT" && git worktree remove "$WORKTREE" --force >/dev/null 2>&1
-  git branch -D consolidate/run >/dev/null 2>&1
+  # worktree/branch 回收由 EXIT 陷阱统一处理。
   exit 0
 fi
 
-if ! git push "$REMOTE" HEAD:"$INTEGRATION_BRANCH" 2>&1 | grep -v "^remote:\|To github\|$" | sed 's/^/[consolidate] push: /'; then
+# push 状态必须单独捕获：管道会让 bash 取最后一个命令的退出码，push 失败被
+# sed/grep 掩盖成「发布成功」；失败时打印完整输出便于诊断。
+if push_output="$(git push "$REMOTE" HEAD:"$INTEGRATION_BRANCH" 2>&1)"; then
+  printf '%s\n' "$push_output" | grep -v '^remote:' | grep -v '^To ' | sed 's/^/[consolidate] push: /' || true
+else
+  printf '%s\n' "$push_output" | sed 's/^/[consolidate] push: /'
   log "ERROR: push to $REMOTE failed; nothing published"
-  cd "$REPO_ROOT" && git worktree remove "$WORKTREE" --force >/dev/null 2>&1
-  git branch -D consolidate/run >/dev/null 2>&1
   exit 1
 fi
 git branch -f "$INTEGRATION_BRANCH" HEAD 2>/dev/null \
@@ -117,6 +165,5 @@ for m in ${merged[@]+"${merged[@]}"}; do log "merged: $m"; done
 for s in ${skipped[@]+"${skipped[@]}"}; do log "skipped: $s"; done
 log "published $INTEGRATION_BRANCH -> $REMOTE"
 
-cd "$REPO_ROOT" && git worktree remove "$WORKTREE" --force >/dev/null 2>&1
-git branch -D consolidate/run >/dev/null 2>&1
+# worktree/branch 回收由 EXIT 陷阱统一处理。
 exit 0
