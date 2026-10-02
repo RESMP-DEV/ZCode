@@ -59,11 +59,12 @@ test("已归档行拒绝未读写请求", async () => {
     await repo.syncTaskMeta({
       meta: buildMeta({ taskId: "task-refuse", workspacePath, updatedAt: 1000 }),
     });
-    await repo.updateTaskState({
+    const archivedMeta = await repo.updateTaskState({
       workspacePath,
       taskId: "task-refuse",
       patch: { archived: true },
     });
+    assert.ok(typeof archivedMeta.archivedAt === "number", "归档时间必须持久化");
 
     const meta = await repo.updateTaskState({
       workspacePath,

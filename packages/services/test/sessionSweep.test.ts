@@ -65,12 +65,17 @@ test("plan 只返回满足全部守卫的候选", async () => {
       }),
     });
     await repo.syncTaskMeta({
-      meta: buildMeta({ taskId: "ok-archived", workspacePath: "/w", updatedAt: old }),
+      meta: buildMeta({
+        taskId: "ok-archived",
+        workspacePath: "/w",
+        updatedAt: old,
+        status: "completed",
+      }),
     });
     await repo.updateTaskState({
       workspacePath: "/w",
       taskId: "ok-archived",
-      patch: { archived: true },
+      patch: { archived: true, archivedAt: old },
     });
     // 不可清理矩阵：近期、运行中、钉住、未读、带阻塞交互。
     await repo.syncTaskMeta({
@@ -173,13 +178,13 @@ test("execute 备份快照、tombstone 行、并跳过守卫复核失败项", as
   });
 });
 
-test("手动归档走 1 天宽限；未归档终态仍需满 minAgeDays", async () => {
+test("归档宽限从归档时间开始；未归档终态仍需满 minAgeDays", async () => {
   await withSweepEnv(async (repo, _root, now) => {
     const twoDaysAgo = now - 2 * DAY_MS;
-    // 已归档 + 2 天前活跃：过 1 天宽限，不过 3 天门槛 → 应可清理。
+    // 行内容 2 天前就已结束，但刚刚归档：宽限必须从 archivedAt 重新开始。
     await repo.syncTaskMeta({
       meta: buildMeta({
-        taskId: "arch-2d",
+        taskId: "arch-recent",
         workspacePath: "/w",
         updatedAt: twoDaysAgo,
         status: "completed",
@@ -187,9 +192,16 @@ test("手动归档走 1 天宽限；未归档终态仍需满 minAgeDays", async 
     });
     await repo.updateTaskState({
       workspacePath: "/w",
-      taskId: "arch-2d",
+      taskId: "arch-recent",
       patch: { archived: true },
     });
+    const archived = await repo.updateTaskState({
+      workspacePath: "/w",
+      taskId: "arch-recent",
+      patch: { status: "completed" },
+    });
+    assert.ok(typeof archived.archivedAt === "number" && archived.archivedAt > twoDaysAgo);
+
     // 未归档终态 + 2 天前活跃：不满 3 天 → 不可清理。
     await repo.syncTaskMeta({
       meta: buildMeta({
@@ -201,8 +213,36 @@ test("手动归档走 1 天宽限；未归档终态仍需满 minAgeDays", async 
     });
     const plan = await planSessionSweep(repo, {});
     const ids = plan.candidates.map((c) => c.taskId);
-    assert.ok(ids.includes("arch-2d"), "archived row should pass the 1-day grace");
+    assert.ok(!ids.includes("arch-recent"), "archival grace starts at archivedAt, not updatedAt");
     assert.ok(!ids.includes("live-2d"), "unarchived terminal row must still wait out minAgeDays");
+
+    await repo.updateTaskState({
+      workspacePath: "/w",
+      taskId: "arch-recent",
+      patch: { archivedAt: twoDaysAgo },
+    });
+    await repo.syncTaskMeta({
+      meta: buildMeta({
+        taskId: "arch-running",
+        workspacePath: "/w",
+        updatedAt: now - 20 * DAY_MS,
+        status: "running",
+      }),
+    });
+    await repo.updateTaskState({
+      workspacePath: "/w",
+      taskId: "arch-running",
+      patch: { archived: true, archivedAt: twoDaysAgo },
+    });
+    const agedPlan = await planSessionSweep(repo, {});
+    assert.ok(
+      agedPlan.candidates.some((candidate) => candidate.taskId === "arch-recent"),
+      "archived row becomes eligible only after its 1-day archivedAt grace",
+    );
+    assert.ok(
+      !agedPlan.candidates.some((candidate) => candidate.taskId === "arch-running"),
+      "archival never substitutes for a terminal status",
+    );
   });
 });
 
@@ -240,6 +280,18 @@ test("孤儿 cron transcript 可清理；存活 automation 的 run 仍受保护"
     const ids = plan.candidates.map((c) => c.taskId);
     assert.ok(ids.includes("cron-orphan"), "orphaned cron transcript should be eligible");
     assert.ok(!ids.includes("cron-live"), "live automation transcript stays protected");
+
+    // Plan 与 execute 之间 automation 恢复/重建：事务内 recheck 仍必须拒绝。
+    repo["getDatabase"]().exec(
+      `INSERT INTO automations (automation_id, title, cron_expr, prompt, workspace_key, workspace_path, created_at, updated_at, next_run_at)
+       VALUES ('automation-dead', 't', '* * * * *', 'p', '/w', '/w', 1, 1, 1)`,
+    );
+    const executed = await repo.sweepDeleteTasks({ taskIds: ["cron-orphan", "cron-live"] });
+    assert.deepEqual(executed.deleted.map((meta) => meta.taskId), []);
+    assert.deepEqual(executed.skipped, [
+      { taskId: "cron-orphan", reason: "guard_recheck_failed" },
+      { taskId: "cron-live", reason: "guard_recheck_failed" },
+    ]);
   });
 });
 

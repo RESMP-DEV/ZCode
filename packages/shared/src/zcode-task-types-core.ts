@@ -327,6 +327,8 @@ export interface ZCodeTaskMeta {
   forkedFromTaskId?: string;
   /** 未读任务记录最近一次标记/产生未读的时间，用于跨重启保留蓝点状态。 */
   unreadAt?: number;
+  /** 最近一次从未归档转为归档的时间；归档清理宽限从该时间开始。 */
+  archivedAt?: number;
   /** 持久化的任务状态，记录最后一次 prompt 的结果 */
   status?: ZCodeTaskPersistStatus;
   /** sessions-index 提供的队首阻塞交互摘要，供未打开的后台 task 渲染侧栏状态。 */

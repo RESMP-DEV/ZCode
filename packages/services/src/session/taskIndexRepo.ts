@@ -144,6 +144,7 @@ interface TaskIndexStatePatch {
   target?: ZCodeTaskMeta["target"];
   pendingInteraction?: ZCodeTaskMeta["pendingInteraction"];
   updatedAt?: number;
+  archivedAt?: number;
 }
 
 // 关键业务逻辑：聊天内容搜索只需要可匹配文本，不需要把完整超长会话无限塞进 sqlite 索引。
@@ -174,6 +175,11 @@ function workspaceKey(params: { workspacePath: string; workspaceIdentity?: strin
 function isTerminalTaskStatus(status: ZCodeTaskMeta["status"]): boolean {
   return status === "completed" || status === "error";
 }
+
+const SESSION_SWEEP_CRON_OWNERSHIP_SQL =
+  "(cron_automation_id IS NULL OR NOT EXISTS (SELECT 1 FROM automations a WHERE a.automation_id = tasks.cron_automation_id AND a.enabled = 1 AND a.lifecycle_status = 'active'))";
+const SESSION_SWEEP_AGE_SQL =
+  "((archived = 1 AND COALESCE(CAST(json_extract(meta_json, '$.archivedAt') AS INTEGER), updated_at) < ?) OR (archived = 0 AND updated_at < ?))";
 
 function shouldPreserveNewerTerminalStatus(
   existingMeta: ZCodeTaskMeta | null,
@@ -936,13 +942,15 @@ export class TaskIndexRepo {
 
     const archiveTask = this.getDatabase().prepare(
       `UPDATE tasks
-      SET archived = 1
+      SET archived = 1, meta_json = ?
       WHERE workspace_key = ? AND task_id = ?`,
     );
     this.getDatabase().exec("BEGIN IMMEDIATE");
     try {
+      const archivedAt = Date.now();
       for (const row of archivableRows) {
-        archiveTask.run(row.workspace_key, row.task_id);
+        const nextMeta: ZCodeTaskMeta = { ...rowToMeta(row), archivedAt };
+        archiveTask.run(serializeMetaJson(nextMeta), row.workspace_key, row.task_id);
       }
       this.getDatabase().exec("COMMIT");
     } catch (error) {
@@ -1063,35 +1071,33 @@ export class TaskIndexRepo {
     "deleted = 0",
     "pinned = 0",
     "unread_at IS NULL",
-    "(archived = 1 OR task_status IN ('completed', 'error'))",
+    "task_status IN ('completed', 'error')",
     // cron 拥有权按「归属 automation 是否仍存活」判定：孤儿 run-transcript
     // （automation 已删除/停用）与普通终态会话同样可清理，否则每次派发留下的
     // 会话永远无法被 sweep，成为永久泄漏。
-    "(cron_automation_id IS NULL OR NOT EXISTS (SELECT 1 FROM automations a WHERE a.automation_id = tasks.cron_automation_id AND a.enabled = 1 AND a.lifecycle_status = 'active'))",
+    SESSION_SWEEP_CRON_OWNERSHIP_SQL,
     "off_peak_task_id IS NULL",
-    // 年龄门槛按归档状态分级：手动归档 = 用户显式的「已完成」信号，走固定 1 天
-    // 宽限（参数顺序：第一个 ? 是归档宽限 cutoff，第二个是常规 cutoff）；
-    // 未归档终态行走 minAgeDays（默认 3 天）。auto-archive 产生的归档行本就
-    // ≥3 天，分级只对用户手动归档生效。
-    "((archived = 1 AND updated_at < ?) OR (archived = 0 AND updated_at < ?))",
+    // 年龄门槛按归档状态分级：终态归档行从 archivedAt 起走固定 1 天宽限
+    // （第一个 ? 是归档宽限 cutoff，第二个是常规 cutoff）；未归档终态行走
+    // minAgeDays（默认 3 天）。旧数据缺 archivedAt 时退回 updated_at。
+    SESSION_SWEEP_AGE_SQL,
   ];
 
-  /** 钉住侧候选：同款守卫但 pinned=1 —— 终态/归档、无未读无阻塞、过期的钉住会话。 */
+  /** 钉住侧候选：同款守卫但 pinned=1 —— 终态、无未读无阻塞、过期的钉住会话。 */
   private static readonly SESSION_SWEEP_PINNED_GUARD_SQL = [
     "deleted = 0",
     "pinned = 1",
     "unread_at IS NULL",
-    "(archived = 1 OR task_status IN ('completed', 'error'))",
+    "task_status IN ('completed', 'error')",
     // cron 拥有权按「归属 automation 是否仍存活」判定：孤儿 run-transcript
     // （automation 已删除/停用）与普通终态会话同样可清理，否则每次派发留下的
     // 会话永远无法被 sweep，成为永久泄漏。
-    "(cron_automation_id IS NULL OR NOT EXISTS (SELECT 1 FROM automations a WHERE a.automation_id = tasks.cron_automation_id AND a.enabled = 1 AND a.lifecycle_status = 'active'))",
+    SESSION_SWEEP_CRON_OWNERSHIP_SQL,
     "off_peak_task_id IS NULL",
-    // 年龄门槛按归档状态分级：手动归档 = 用户显式的「已完成」信号，走固定 1 天
-    // 宽限（参数顺序：第一个 ? 是归档宽限 cutoff，第二个是常规 cutoff）；
-    // 未归档终态行走 minAgeDays（默认 3 天）。auto-archive 产生的归档行本就
-    // ≥3 天，分级只对用户手动归档生效。
-    "((archived = 1 AND updated_at < ?) OR (archived = 0 AND updated_at < ?))",
+    // 年龄门槛按归档状态分级：终态归档行从 archivedAt 起走固定 1 天宽限
+    // （第一个 ? 是归档宽限 cutoff，第二个是常规 cutoff）；未归档终态行走
+    // minAgeDays（默认 3 天）。旧数据缺 archivedAt 时退回 updated_at。
+    SESSION_SWEEP_AGE_SQL,
   ];
 
   private sessionSweepGuardHolds(
@@ -1101,7 +1107,7 @@ export class TaskIndexRepo {
   ): boolean {
     if (row.deleted === 1 || row.pinned === 1) return false;
     if (row.unread_at != null) return false;
-    if (row.archived !== 1 && row.task_status !== "completed" && row.task_status !== "error") {
+    if (!isTerminalTaskStatus(row.task_status as ZCodeTaskMeta["status"])) {
       return false;
     }
     if (row.off_peak_task_id != null) return false;
@@ -1114,9 +1120,11 @@ export class TaskIndexRepo {
         .get(row.cron_automation_id);
       if (live) return false;
     }
-    if (row.updated_at >= (row.archived === 1 ? archivedCutoff : fullCutoff)) return false;
     // meta 仍带阻塞交互 = 还有等用户的动作，一律不删。
-    return rowToMeta(row).pendingInteraction == null;
+    const meta = rowToMeta(row);
+    const changedAt = row.archived === 1 ? (meta.archivedAt ?? row.updated_at) : row.updated_at;
+    if (changedAt >= (row.archived === 1 ? archivedCutoff : fullCutoff)) return false;
+    return meta.pendingInteraction == null;
   }
 
   /** 跨全部 workspace 的可清理候选（只读）；agent 只拿这份清单做相关性判断。 */
@@ -1677,6 +1685,7 @@ export class TaskIndexRepo {
           existingMeta,
           params.meta,
         );
+        const archived = params.archived ?? existing?.archived === 1;
         const meta: ZCodeTaskMeta = {
           ...params.meta,
           // agent 只负责 session 核心标题，用户手动重命名属于 app 侧 task 状态。
@@ -1711,13 +1720,15 @@ export class TaskIndexRepo {
           cronAutomationId: params.meta.cronAutomationId ?? existingMeta?.cronAutomationId,
           // off-peak 身份同款兜底：快照不带标记时保全既有归属。
           offPeakTaskId: params.meta.offPeakTaskId ?? existingMeta?.offPeakTaskId,
+          archivedAt:
+            params.meta.archivedAt ?? existingMeta?.archivedAt ?? (archived ? Date.now() : undefined),
           updatedAt,
           unreadAt: params.meta.unreadAt ?? existingMeta?.unreadAt,
         };
         const persistedMeta = this.writeRecord({
           meta,
           pinned: params.pinned ?? existing?.pinned === 1,
-          archived: params.archived ?? existing?.archived === 1,
+          archived,
           deleted: params.deleted ?? existing?.deleted === 1,
           titleOverridden,
           searchableText: params.searchableText,
@@ -1955,6 +1966,7 @@ export class TaskIndexRepo {
         // 归档行会生成永远无法清除的僵尸未读（自动归档与 session sweep 守卫都拒绝
         // unread 行）。因此归档写入顺带清未读，已归档行上的未读写请求一律拒绝，
         // 且对已归档行的任何状态写都重新断言 unread_at IS NULL（读侧自愈收敛）。
+        const archivingNow = params.patch.archived === true && row.archived === 0;
         const willBeArchived = params.patch.archived === true || row.archived === 1;
         // 毫秒时间戳可能让同一 task 的两个逻辑未读得到相同版本，
         // 且清除 unreadAt 后只看当前值会再次复用旧版本。必须在 SQLite 写锁内
@@ -1988,6 +2000,8 @@ export class TaskIndexRepo {
             "pendingInteraction" in params.patch
               ? params.patch.pendingInteraction
               : current.pendingInteraction,
+          archivedAt: params.patch.archivedAt
+            ?? (archivingNow ? Date.now() : current.archivedAt),
         };
         const persistedMeta = this.writeRecord({
           meta: nextMeta,

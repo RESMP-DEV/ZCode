@@ -13,7 +13,7 @@ userData, so it runs side-by-side with the official /Applications/ZCode.app whil
 sharing ~/.zcode business state. Rollback = flip `current` back to `previous-good`.
 
 Layout:
-  <lib-root>/packages/<yyyymmdd-HHMM>-<gitsha>[-dirty]/   snapshot dirs (app + manifest.json)
+  <lib-root>/packages/<yyyymmdd-HHMMSS>-<gitsha>[-dirty]/  snapshot dirs (app + manifest.json)
   <lib-root>/current                        -> packages/<newest snapshot>
   <lib-root>/previous-good                  -> packages/<prior build>
   /Applications/ZCode Preview.app            installed copy of `current`
@@ -49,6 +49,13 @@ app_install_path="${ZCODE_APP_INSTALL_PATH:-/Applications/ZCode Preview.app}"
 lib_root="${ZCODE_LIB_ROOT:-${HOME}/.local/lib/alphaheng/zcode}"
 keep_snapshots="${ZCODE_KEEP_SNAPSHOTS:-3}"
 
+validate_keep_snapshots() {
+  [[ "${keep_snapshots}" =~ ^(0|[1-9][0-9]*)$ ]] || {
+    echo "error: --keep-snapshots must be a non-negative integer" >&2
+    exit 1
+  }
+}
+
 while (($# > 0)); do
   case "$1" in
     --no-build) do_build=0; shift ;;
@@ -68,6 +75,7 @@ while (($# > 0)); do
     *) echo "error: unknown option: $1" >&2; usage >&2; exit 1 ;;
   esac
 done
+validate_keep_snapshots
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -- "${script_dir}/.." && pwd)"
@@ -109,10 +117,39 @@ verify_preview_identity() {
   fi
 }
 
+remove_install_target() {
+  local installed_id
+  if [[ ! -e "${app_install_path}" && ! -L "${app_install_path}" ]]; then
+    return 0
+  fi
+  if ! installed_id="$(plist_print "${app_install_path}" CFBundleIdentifier)"; then
+    echo "error: cannot read identity from existing install target: ${app_install_path}" >&2
+    return 1
+  fi
+  if [[ -z "${installed_id}" ]]; then
+    echo "error: existing install target has no readable bundle identity: ${app_install_path}" >&2
+    return 1
+  fi
+  if [[ "${installed_id}" != "${PREVIEW_BUNDLE_ID}" ]]; then
+    echo "error: refusing to overwrite ${app_install_path} (CFBundleIdentifier=${installed_id})" >&2
+    return 1
+  fi
+  rm -rf "${app_install_path:?}"
+}
+
+select_current_snapshot() {
+  ln -sfn "packages/${snapshot_name}" "${lib_root}/current"
+  if [[ -n "${previous_target}" \
+    && "${previous_target}" != "${snapshot_name}" \
+    && -d "${packages_root}/${previous_target}" ]]; then
+    ln -sfn "packages/${previous_target}" "${lib_root}/previous-good"
+  fi
+}
+
 if ((do_list)); then
   mkdir -p "${packages_root}"
   echo "snapshots under ${packages_root}:"
-  ls -1 "${packages_root}" | sort -r | while IFS= read -r snap; do
+  find "${packages_root}" -mindepth 1 -maxdepth 1 -type d -exec basename {} + | sort -r | while IFS= read -r snap; do
     local_marker=""
     [[ "$(readlink "${lib_root}/current" 2>/dev/null)" == "packages/${snap}" ]] && local_marker="${local_marker} [current]"
     [[ "$(readlink "${lib_root}/previous-good" 2>/dev/null)" == "packages/${snap}" ]] && local_marker="${local_marker} [previous-good]"
@@ -133,21 +170,22 @@ if ((do_rollback)); then
   previous_snap="$(basename "$(readlink "${lib_root}/previous-good")")"
   rollback_app="${packages_root}/${previous_snap}/${APP_BASENAME}"
   verify_preview_identity "${rollback_app}"
+  rollback_sha="$(app_binary_sha "${rollback_app}")"
   echo "Rolling back: ${current_snap} -> ${previous_snap}"
-  ln -sfn "packages/${previous_snap}" "${lib_root}/current"
-  ln -sfn "packages/${current_snap}" "${lib_root}/previous-good"
   if ((do_install)); then
-    if [[ -e "${app_install_path}" ]]; then
-      installed_id="$(plist_print "${app_install_path}" CFBundleIdentifier || true)"
-      if [[ -n "${installed_id}" && "${installed_id}" != "${PREVIEW_BUNDLE_ID}" ]]; then
-        echo "error: refusing to overwrite ${app_install_path} (CFBundleIdentifier=${installed_id})" >&2
-        exit 1
-      fi
-      rm -rf "${app_install_path:?}"
+    if ! remove_install_target; then
+      exit 1
     fi
     ditto "${rollback_app}" "${app_install_path}"
+    installed_sha="$(app_binary_sha "${app_install_path}")"
+    if [[ "${installed_sha}" != "${rollback_sha}" ]]; then
+      echo "error: rolled-back installed binary checksum does not match snapshot" >&2
+      exit 1
+    fi
     echo "Installed: ${app_install_path} (snapshot ${previous_snap})"
   fi
+  ln -sfn "packages/${previous_snap}" "${lib_root}/current"
+  ln -sfn "packages/${current_snap}" "${lib_root}/previous-good"
   echo "Rollback complete."
   exit 0
 fi
@@ -163,7 +201,7 @@ if ((do_build)); then
   )
 fi
 
-app_path="$(ls -d "${dist_mac_dir}/"*.app 2>/dev/null | head -1 || true)"
+app_path="$(find "${dist_mac_dir}" -mindepth 1 -maxdepth 1 -type d -name '*.app' -print -quit 2>/dev/null || true)"
 if [[ -z "${app_path}" ]]; then
   echo "error: no bundled app found under ${dist_mac_dir}; run without --no-build first" >&2
   exit 1
@@ -176,7 +214,7 @@ git_sha="$(git -C "${repo_root}" rev-parse --short=8 HEAD 2>/dev/null || echo no
 if [[ -n "$(git -C "${repo_root}" status --porcelain 2>/dev/null | head -1)" ]]; then
   git_sha="${git_sha}-dirty"
 fi
-snapshot_name="$(date +%Y%m%d-%H%M)-${git_sha}"
+snapshot_name="$(date +%Y%m%d-%H%M%S)-${git_sha}"
 snapshot_dir="${packages_root}/${snapshot_name}"
 if [[ -d "${snapshot_dir}" ]]; then
   echo "error: snapshot already exists: ${snapshot_dir}" >&2
@@ -206,11 +244,8 @@ previous_target=""
 if [[ -L "${lib_root}/current" ]]; then
   previous_target="$(basename "$(readlink "${lib_root}/current")")"
 fi
-ln -sfn "packages/${snapshot_name}" "${lib_root}/current"
-if [[ -n "${previous_target}" \
-  && "${previous_target}" != "${snapshot_name}" \
-  && -d "${packages_root}/${previous_target}" ]]; then
-  ln -sfn "packages/${previous_target}" "${lib_root}/previous-good"
+if (( ! do_install )); then
+  select_current_snapshot
 fi
 
 # --- install ----------------------------------------------------------------------
@@ -218,20 +253,14 @@ if ((do_install)); then
   if pgrep -fq "${APP_BASENAME}/Contents/MacOS" 2>/dev/null; then
     echo "warning: ZCode Preview is running; the installed copy updates on disk, restart it manually when convenient." >&2
   fi
-  if [[ -e "${app_install_path}" ]]; then
-    installed_id="$(plist_print "${app_install_path}" CFBundleIdentifier || true)"
-    if [[ -n "${installed_id}" && "${installed_id}" != "${PREVIEW_BUNDLE_ID}" ]]; then
-      echo "error: refusing to overwrite ${app_install_path} (CFBundleIdentifier=${installed_id})" >&2
-      exit 1
-    fi
-    rm -rf "${app_install_path:?}"
-  fi
+  remove_install_target
   ditto "${snapshot_dir}/${APP_BASENAME}" "${app_install_path}"
   installed_sha="$(app_binary_sha "${app_install_path}")"
   if [[ "${installed_sha}" != "${binary_sha}" ]]; then
     echo "error: installed binary checksum does not match snapshot" >&2
     exit 1
   fi
+  select_current_snapshot
   echo "Installed: ${app_install_path}"
 fi
 
@@ -240,15 +269,16 @@ echo "Release SHA: ${binary_sha}"
 
 # --- prune old snapshots -----------------------------------------------------------
 kept=0
+protected_previous="$(basename "$(readlink "${lib_root}/previous-good" 2>/dev/null)" 2>/dev/null || true)"
 while IFS= read -r snap; do
   [[ -n "${snap}" ]] || continue
-  [[ "${snap}" == "${snapshot_name}" || "${snap}" == "${previous_target}" ]] && continue
+  [[ "${snap}" == "${snapshot_name}" || "${snap}" == "${previous_target}" || "${snap}" == "${protected_previous}" ]] && continue
   kept=$((kept + 1))
   if ((kept > keep_snapshots)); then
     rm -rf "${packages_root:?}/${snap}"
     echo "Pruned old snapshot: ${snap}"
   fi
-done < <(ls -1 "${packages_root}" | sort -r)
+done < <(find "${packages_root}" -mindepth 1 -maxdepth 1 -type d -exec basename {} + | sort -r)
 
 if ((do_install)); then
   echo "Smoke check: scripts/smoke-test-zcode-preview.sh"

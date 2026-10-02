@@ -12,7 +12,7 @@ const nonEmptyString = z.string().trim().min(1);
 export const SessionSweepPlanInputSchema = z
   .object({
     minAgeDays: z.number().int().positive().max(365).optional().describe(
-      "Older-than window (days) for unarchived finished sessions. Omit for the default (3 days). Sessions already archived (typically by the user) use a fixed 1-day grace instead and ignore this value.",
+      "Older-than window (days) for unarchived finished sessions. Omit for the default (3 days). Finished sessions already archived use a fixed 1-day grace measured from archivedAt; this input does not change that grace.",
     ),
     limit: z.number().int().positive().max(200).optional().describe(
       "Maximum number of candidates to return. Omit for the default (60).",

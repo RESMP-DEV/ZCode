@@ -1227,6 +1227,7 @@ export const zcodeTaskMetaSchema = z.object({
   // off_peak_task_id 索引投影列（兜底/反查）。
   offPeakTaskId: nonEmptyStringSchema.optional(),
   unreadAt: z.number().int().nonnegative().optional(),
+  archivedAt: z.number().int().nonnegative().optional(),
   status: zcodeTaskPersistStatusSchema.optional(),
   // sessions-index 队首阻塞交互摘要：随 meta_json 持久化。此前该字段只在 UI 内存里
   // 从实时摘要映射，会话未订阅或 app 重启后无任何痕迹，表现为「点完通知就找不到
