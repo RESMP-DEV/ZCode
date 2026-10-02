@@ -134,8 +134,6 @@ if ((do_rollback)); then
   rollback_app="${packages_root}/${previous_snap}/${APP_BASENAME}"
   verify_preview_identity "${rollback_app}"
   echo "Rolling back: ${current_snap} -> ${previous_snap}"
-  ln -sfn "packages/${previous_snap}" "${lib_root}/current"
-  ln -sfn "packages/${current_snap}" "${lib_root}/previous-good"
   if ((do_install)); then
     if [[ -e "${app_install_path}" ]]; then
       installed_id="$(plist_print "${app_install_path}" CFBundleIdentifier || true)"
@@ -145,9 +143,13 @@ if ((do_rollback)); then
       fi
       rm -rf "${app_install_path:?}"
     fi
+    # 安装成功后再翻指针：失败退出时 current 仍指向最近一次成功安装的快照，
+    # 重试不会把 previous-good 顶成从未安装过的目标。
     ditto "${rollback_app}" "${app_install_path}"
     echo "Installed: ${app_install_path} (snapshot ${previous_snap})"
   fi
+  ln -sfn "packages/${previous_snap}" "${lib_root}/current"
+  ln -sfn "packages/${current_snap}" "${lib_root}/previous-good"
   echo "Rollback complete."
   exit 0
 fi
@@ -206,14 +208,20 @@ previous_target=""
 if [[ -L "${lib_root}/current" ]]; then
   previous_target="$(basename "$(readlink "${lib_root}/current")")"
 fi
-ln -sfn "packages/${snapshot_name}" "${lib_root}/current"
-if [[ -n "${previous_target}" \
-  && "${previous_target}" != "${snapshot_name}" \
-  && -d "${packages_root}/${previous_target}" ]]; then
-  ln -sfn "packages/${previous_target}" "${lib_root}/previous-good"
-fi
+
+publish_pointers() {
+  ln -sfn "packages/${snapshot_name}" "${lib_root}/current"
+  if [[ -n "${previous_target}" \
+    && "${previous_target}" != "${snapshot_name}" \
+    && -d "${packages_root}/${previous_target}" ]]; then
+    ln -sfn "packages/${previous_target}" "${lib_root}/previous-good"
+  fi
+}
 
 # --- install ----------------------------------------------------------------------
+# 指针只在安装与校验成功后翻转（--no-install 无安装步骤，快照落盘即发布）：
+# 安装失败退出时 current/previous-good 仍指向最近一次成功安装的快照对，
+# 重试不会把 previous-good 顶成从未安装过的新快照。
 if ((do_install)); then
   if pgrep -fq "${APP_BASENAME}/Contents/MacOS" 2>/dev/null; then
     echo "warning: ZCode Preview is running; the installed copy updates on disk, restart it manually when convenient." >&2
@@ -232,17 +240,26 @@ if ((do_install)); then
     echo "error: installed binary checksum does not match snapshot" >&2
     exit 1
   fi
+  publish_pointers
   echo "Installed: ${app_install_path}"
+else
+  publish_pointers
 fi
 
 echo "Snapshot: ${snapshot_name}"
 echo "Release SHA: ${binary_sha}"
 
 # --- prune old snapshots -----------------------------------------------------------
+# 修剪保护读取 previous-good 链接的实际解析目标：previous_target 可能因首次构建
+# （无链接）或守卫跳过翻转而与链接指向不一致，漏保护会让 --rollback 失去回滚点。
+protected_prev=""
+prev_link_target="$(readlink "${lib_root}/previous-good" 2>/dev/null || true)"
+[[ -n "${prev_link_target}" ]] && protected_prev="$(basename "${prev_link_target}")"
+
 kept=0
 while IFS= read -r snap; do
   [[ -n "${snap}" ]] || continue
-  [[ "${snap}" == "${snapshot_name}" || "${snap}" == "${previous_target}" ]] && continue
+  [[ "${snap}" == "${snapshot_name}" || "${snap}" == "${previous_target}" || "${snap}" == "${protected_prev}" ]] && continue
   kept=$((kept + 1))
   if ((kept > keep_snapshots)); then
     rm -rf "${packages_root:?}/${snap}"
