@@ -18,6 +18,7 @@ import {
   WandSparkles,
   Keyboard,
   FileSearch,
+  FileWarning,
 } from "lucide-react";
 import { isSettingsSectionEnabled, type SettingsSectionId } from "@/lib/settingsNavigation.js";
 import type { Theme } from "@/useTheme.js";
@@ -150,6 +151,13 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     titleId: "settings.workspaceFileSearch.title",
     groupId: "basics",
   },
+  // 「诊断」提供日志/崩溃归档目录与本机崩溃记录的只读视图，紧跟使用统计同属 dataAndStats。
+  {
+    id: "diagnostics",
+    icon: FileWarning,
+    titleId: "settings.diagnostics",
+    groupId: "dataAndStats",
+  },
   {
     id: "usage",
     icon: BarChart3,
@@ -159,9 +167,12 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
 ];
 
 // 兼容既有只读消费者：默认配置代表不带桌面平台能力的 Web 视图；
-// macOS/Windows/Linux 必须继续通过 createSettingsPageConfig 动态加入 Computer Use。
+// macOS/Windows/Linux 必须继续通过 createSettingsPageConfig 动态加入 Computer Use 等桌面专属分区。
 export const SETTINGS_SECTIONS = BASE_SETTINGS_SECTIONS.filter(
-  (section) => section.id !== "computerUse" && isSettingsSectionEnabled(section.id),
+  (section) =>
+    section.id !== "computerUse" &&
+    section.id !== "diagnostics" &&
+    isSettingsSectionEnabled(section.id),
 );
 
 interface SettingsPageConfigOptions {
@@ -175,9 +186,16 @@ export function createSettingsPageConfig({
   isMacDesktop = false,
   isWindowsDesktop = false,
 }: SettingsPageConfigOptions = {}) {
-  const showComputerUse = isDesktop || isMacDesktop || isWindowsDesktop;
+  // computerUse 与 diagnostics 都依赖桌面平台能力（本机窗口控制 / 本机日志与崩溃文件），
+  // Web 视图统一隐藏，对齐验收场景「Web/非 desktop 环境不出现该 nav 项」。
+  const showDesktopOnlySections = isDesktop || isMacDesktop || isWindowsDesktop;
   const settingsSections = BASE_SETTINGS_SECTIONS.filter((section) => {
-    if (section.id === "computerUse" && !showComputerUse) return false;
+    if (
+      (section.id === "computerUse" || section.id === "diagnostics") &&
+      !showDesktopOnlySections
+    ) {
+      return false;
+    }
     return isSettingsSectionEnabled(section.id);
   });
   const settingsSectionGroups = BASE_SETTINGS_SECTION_GROUPS.map((group) => ({

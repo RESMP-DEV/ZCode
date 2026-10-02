@@ -1,7 +1,9 @@
 import {
+  appendFileSync,
   copyFileSync,
   existsSync,
   mkdirSync,
+  readFileSync,
   readdirSync,
   statSync,
   unlinkSync,
@@ -11,6 +13,11 @@ import {
 import { basename, join } from "node:path";
 import { app, crashReporter, type BrowserWindow, type WebContents } from "electron";
 import { getAppConfigDir } from "@zcode/services/node";
+import {
+  CRASH_HISTORY_MAX_LINES,
+  crashDumpIdFromFileName,
+  selectNewestCrashHistoryLines,
+} from "@zcode/services";
 import {
   type CrashDumpV8OomSummary,
   readCrashDumpAnnotationsFromFile,
@@ -83,10 +90,32 @@ function isStableCrashDump(path: string, nowMs: number): boolean {
   }
 }
 
+/** 把 history.jsonl 截断到最近 200 条（按 crashedAtMs ?? archivedAtMs 挑选，保持追加顺序）。 */
+function truncateCrashHistoryFile(historyPath: string): void {
+  let content: string;
+  try {
+    content = readFileSync(historyPath, "utf-8");
+  } catch {
+    // history.jsonl 尚不存在（首次归档/新装机）时无需截断。
+    return;
+  }
+  const lines = content.split(/\r?\n/).filter((line) => line.length > 0);
+  const keptLines = selectNewestCrashHistoryLines(lines, CRASH_HISTORY_MAX_LINES);
+  if (keptLines.length === lines.length) {
+    return;
+  }
+  try {
+    writeFileSync(historyPath, `${keptLines.join("\n")}\n`, "utf-8");
+  } catch {
+    // 截断失败只影响 history 容量上限，不能阻断归档清理的同步临界区。
+  }
+}
+
 function persistArchivedCrashDump(
   dumpPath: string,
   archiveDir: string,
   archivedAt: Date,
+  historyPath: string,
 ): ArchivedCrashDumpRecord | null {
   const fileName = basename(dumpPath);
   const archivedDumpPath = join(archiveDir, fileName);
@@ -109,6 +138,9 @@ function persistArchivedCrashDump(
       {
         archivedAt: archivedAt.toISOString(),
         originalPath: dumpPath,
+        // sidecar 曾只记归档时间；显式补 crash 时间（源 dump mtime）与大小供诊断区展示。
+        crashedAtMs: sourceStats.mtimeMs,
+        sizeBytes: sourceStats.size,
         ...(Object.keys(annotations).length > 0 ? { annotations } : {}),
         ...(v8OomSummary ? { v8OomSummary } : {}),
       },
@@ -117,12 +149,53 @@ function persistArchivedCrashDump(
     ),
     "utf-8",
   );
+  appendCrashHistoryLine({
+    historyPath,
+    fileName,
+    crashedAtMs: sourceStats.mtimeMs,
+    archivedAtMs: archivedAt.getTime(),
+    sizeBytes: sourceStats.size,
+    v8OomSummary,
+  });
   return { dumpPath, archivedDumpPath, v8OomSummary };
+}
+
+function appendCrashHistoryLine(params: {
+  historyPath: string;
+  fileName: string;
+  crashedAtMs: number;
+  archivedAtMs: number;
+  sizeBytes: number;
+  v8OomSummary: CrashDumpV8OomSummary | null;
+}): void {
+  const dumpId = crashDumpIdFromFileName(params.fileName);
+  if (dumpId === null) {
+    return;
+  }
+  // sidecar 曾只记归档时间，且归档只保留 5 个 dump，诊断视图会「先清理后查看」。
+  // history.jsonl 追加一行，让 crash 记录不受保留上限影响（specs/settings-diagnostics-crash-logs.md 行为 3）。
+  // 这里的 v8OomSummary 是完整 desktop 注解摘要；services 读取时只投影需要的子集，序列化兼容。
+  try {
+    appendFileSync(
+      params.historyPath,
+      `${JSON.stringify({
+        id: dumpId,
+        crashedAtMs: params.crashedAtMs,
+        archivedAtMs: params.archivedAtMs,
+        sizeBytes: params.sizeBytes,
+        v8OomSummary: params.v8OomSummary ?? null,
+      })}\n`,
+      "utf-8",
+    );
+  } catch {
+    // history 追加失败不回滚已成功的归档；该 crash 仍可由归档扫描兜底可见。
+  }
 }
 
 function pruneCrashDumpArchive(
   archiveDir: string,
   policy: CrashArchiveRetentionPolicy,
+  historyPath: string,
 ): CrashArchiveCleanupResult {
   // 启动时必须先完成本地留档与清理，再让 ARMS 扫描并删除 live；这里保持与既有归档一致的
   // 同步临界区，避免异步 IO 改变 appCrashCaptureBootstrap -> appARMSBootstrap 的先后顺序。
@@ -217,6 +290,10 @@ function pruneCrashDumpArchive(
     }
   }
 
+  // 与归档清理同一同步临界区截断 history：dump 被清理后 history 是该 crash 的唯一记录，
+  // 截断防止历史无限增长，同时保留最近 200 条（specs/settings-diagnostics-crash-logs.md 行为 3）。
+  truncateCrashHistoryFile(historyPath);
+
   return { deletedFiles, failedFiles };
 }
 
@@ -235,6 +312,9 @@ function archiveCrashDumps(
   failedArchiveFiles: string[];
 } {
   mkdirSync(paths.archiveDir, { recursive: true });
+
+  // history.jsonl 与 archive 同级（crash/ 根目录），由 read model 与归档清理共同消费。
+  const historyPath = join(paths.rootDir, "history.jsonl");
 
   const platform = options?.platform ?? process.platform;
   const now = options?.now ?? new Date();
@@ -260,7 +340,7 @@ function archiveCrashDumps(
       }
 
       try {
-        const record = persistArchivedCrashDump(dumpPath, paths.archiveDir, now);
+        const record = persistArchivedCrashDump(dumpPath, paths.archiveDir, now, historyPath);
         if (record) {
           archivedFiles.push(dumpPath);
           archivedDumps.push(record);
@@ -277,6 +357,7 @@ function archiveCrashDumps(
       maxFiles: CRASH_ARCHIVE_MAX_FILES,
       maxTotalBytes: CRASH_ARCHIVE_MAX_TOTAL_BYTES,
     },
+    historyPath,
   );
 
   return {

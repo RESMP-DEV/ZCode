@@ -147,6 +147,10 @@ const NON_LOG_STATE_ARCHIVE_PATHS = [
 ] as const;
 const SENSITIVE_CREDENTIAL_ARCHIVE_FILE_NAMES = new Set(["credentials.json", ".credentials.json"]);
 const EXCLUDED_ARCHIVE_DIRECTORY_NAMES = new Set(["debug"]);
+// crash/live 由 Crashpad 与远端 SDK 所有；归档 dump 的导出规则见 isCrashDumpArchivePath。
+const CRASH_LIVE_ARCHIVE_PATH = "crash/live";
+const CRASH_DUMP_ARCHIVE_DIRECTORY_PREFIX = "crash/archive/";
+const CRASH_DUMP_FILE_SUFFIX = ".dmp";
 const DEFAULT_LOG_EXPORT_LOOKBACK_DAYS = 3;
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 const REDACTED_PLACEHOLDER = "***REDACTED***";
@@ -672,6 +676,23 @@ function isExcludedCachePath(relativePath: string): boolean {
   );
 }
 
+function isCrashDumpArchivePath(relativePath: string): boolean {
+  const normalizedRelativePath = normalizeArchivePath(relativePath);
+  // crash/live 是 Crashpad/远端 SDK 的运行态目录，导出时整目录排除、绝不触碰。
+  if (
+    normalizedRelativePath === CRASH_LIVE_ARCHIVE_PATH ||
+    normalizedRelativePath.startsWith(`${CRASH_LIVE_ARCHIVE_PATH}/`)
+  ) {
+    return true;
+  }
+  // .dmp minidump 二进制包含崩溃进程的完整内存快照（隐私泄露面），打进日志包等于把
+  // 用户全部进程内存交出去；导出只保留 crash/archive 的 .dmp.json 结构化摘要与 history.jsonl。
+  return (
+    normalizedRelativePath.startsWith(CRASH_DUMP_ARCHIVE_DIRECTORY_PREFIX) &&
+    normalizedRelativePath.endsWith(CRASH_DUMP_FILE_SUFFIX)
+  );
+}
+
 function isRetiredAcpRuntimePath(relativePath: string): boolean {
   const normalizedRelativePath = normalizeArchivePath(relativePath);
   return RETIRED_ACP_RUNTIME_ARCHIVE_PATHS.some(
@@ -729,6 +750,10 @@ function isExcludedRelativePath(relativePath: string): boolean {
   // debug 目录通常是模型/运行时高频轨迹，不是用户要交付的日志包材料。
   // 过去显式收集 ~/.zcode/cli/debug 会把这类上下文带进手动导出和反馈完整日志，这里按目录段统一跳过。
   if (isExcludedDirectoryArchivePath(normalizedRelativePath)) {
+    return true;
+  }
+  // crash dump 含进程内存（隐私）：crash/live 全排除，crash/archive 只保留 .dmp.json sidecar。
+  if (isCrashDumpArchivePath(normalizedRelativePath)) {
     return true;
   }
   if (isNonLogStateArchivePath(normalizedRelativePath)) {

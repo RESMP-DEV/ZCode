@@ -400,6 +400,20 @@ export const TID_SETTINGS_MEMORY_FILE_UPDATED_AT = "settings-memory-file-updated
 export const TID_SETTINGS_MEMORY_FILE_EDITOR_ACTIONS = "settings-memory-file-editor-actions";
 /** Memory 原始 Markdown 预览 */
 export const TID_SETTINGS_MEMORY_PREVIEW = "settings-memory-preview";
+/** 设置页「诊断」分区容器 */
+export const TID_SETTINGS_DIAGNOSTICS_SECTION = "settings-diagnostics-section";
+/** 设置页「诊断」打开日志目录按钮 */
+export const TID_SETTINGS_DIAGNOSTICS_OPEN_LOGS_DIR = "settings-diagnostics-open-logs-dir";
+/** 设置页「诊断」打开崩溃归档目录按钮 */
+export const TID_SETTINGS_DIAGNOSTICS_OPEN_CRASH_DIR = "settings-diagnostics-open-crash-dir";
+/** 设置页「诊断」崩溃记录行（动态后缀为 crash dump id） */
+export const TID_SETTINGS_DIAGNOSTICS_CRASH_ROW = "settings-diagnostics-crash-row";
+/** 设置页「诊断」崩溃记录行内「显示于文件夹」按钮（动态后缀为 crash dump id） */
+export const TID_SETTINGS_DIAGNOSTICS_CRASH_REVEAL = "settings-diagnostics-crash-reveal";
+/** 设置页「诊断」刷新按钮 */
+export const TID_SETTINGS_DIAGNOSTICS_REFRESH = "settings-diagnostics-refresh";
+/** 设置页「诊断」崩溃记录计数 */
+export const TID_SETTINGS_DIAGNOSTICS_COUNT = "settings-diagnostics-count";
 /** 常规设置中的 AskUserQuestion 自动继续开关 */
 export const TID_SETTINGS_ASK_USER_QUESTION_AUTO_RESOLUTION_SWITCH =
   "settings-ask-user-question-auto-resolution-switch";

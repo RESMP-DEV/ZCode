@@ -137,6 +137,8 @@ export const ServiceChannels = {
   Hooks: "hooks",
   /** Memory 管理服务 */
   Memory: "memory",
+  /** 设置页诊断只读服务（崩溃历史 read model + 日志/归档路径） */
+  Diagnostics: "diagnostics",
   /** 首次启动设置同步服务 */
   SettingsSync: "settings-sync",
   /** Bots 远程聊天控制服务 */

@@ -325,6 +325,7 @@ import { ISubagentsService } from "./subagents/subagents.js";
 import { ICommandsService } from "./commands/commands.js";
 import { IHooksService } from "./hooks/hooks.js";
 import { IMemoryService } from "./memory/memory.js";
+import { IDiagnosticsService } from "./diagnostics/diagnostics.js";
 import { ISettingsSyncService } from "./settings-sync/settingsSync.js";
 import { IFeedbackService } from "./feedback/feedback.js";
 import { IPromptAttachmentTransferService } from "./prompt-attachment-transfer/promptAttachmentTransfer.js";
@@ -412,6 +413,7 @@ import { createSubagentsService } from "./subagents/subagentsService.js";
 import { createCommandsService } from "./commands/commandsService.js";
 import { createHooksService } from "./hooks/hooksService.js";
 import { createMemoryService } from "./memory/memoryService.js";
+import { createDiagnosticsService } from "./diagnostics/diagnosticsService.js";
 import { createSettingsSyncService } from "./settings-sync/settingsSyncService.js";
 import {
   createFeedbackService,
@@ -2586,6 +2588,7 @@ export function createLocalServices(options: {
       }),
     )
     .register(IMemoryService, createMemoryService())
+    .register(IDiagnosticsService, createDiagnosticsService())
     .register(ISettingsSyncService, createSettingsSyncService({ settingService }))
     .register(
       IFeedbackService,

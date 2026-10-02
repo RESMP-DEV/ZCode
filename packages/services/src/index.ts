@@ -217,6 +217,20 @@ export {
 } from "./memory/memory.js";
 export type { ProjectMemoryFileSummary, ProjectMemoryWorkspaceSummary } from "./memory/memory.js";
 
+// Diagnostics service — IDiagnosticsService is both a type (interface) and value (descriptor).
+export { IDiagnosticsService } from "./diagnostics/diagnostics.js";
+export type {
+  CrashDiagnosticsEntry,
+  CrashDiagnosticsPaths,
+  CrashDiagnosticsV8OomSummary,
+} from "./diagnostics/diagnostics.js";
+// 崩溃历史纯投影：desktop 捕获侧截断 history.jsonl 与 read model 合并排序共用同一实现。
+export {
+  CRASH_HISTORY_MAX_LINES,
+  crashDumpIdFromFileName,
+  selectNewestCrashHistoryLines,
+} from "./diagnostics/crashHistoryProjection.js";
+
 export type { SessionRealtimePort } from "./session/sessionRealtimePort.js";
 
 // FileWatcher service — IFileWatcherService is both a type (interface) and value (descriptor)

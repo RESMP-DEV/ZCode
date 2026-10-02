@@ -35,6 +35,7 @@ import {
   ISubagentsService,
   ICommandsService,
   IHooksService,
+  IDiagnosticsService,
   IMemoryService,
   ISettingsSyncService,
   IFeedbackService,
@@ -88,6 +89,7 @@ export class RemoteServiceAccess implements IServiceAccessor {
   readonly subagentsService: ISubagentsService;
   readonly commandsService: ICommandsService;
   readonly hooksService: IHooksService;
+  readonly diagnosticsService: IDiagnosticsService;
   readonly memoryService: IMemoryService;
   readonly settingsSyncService: ISettingsSyncService;
   readonly feedbackService: IFeedbackService;
@@ -206,6 +208,9 @@ export class RemoteServiceAccess implements IServiceAccessor {
     );
     this.hooksService = ProxyChannel.toService<IHooksService>(
       channelClient.getChannel(IHooksService.channelName),
+    );
+    this.diagnosticsService = ProxyChannel.toService<IDiagnosticsService>(
+      channelClient.getChannel(IDiagnosticsService.channelName),
     );
     this.memoryService = ProxyChannel.toService<IMemoryService>(
       channelClient.getChannel(IMemoryService.channelName),

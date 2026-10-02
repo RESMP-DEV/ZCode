@@ -70,6 +70,7 @@ import { PluginsSection } from "@/settings/PluginsSection.js";
 import { HooksSection } from "@/settings/HooksSection.js";
 import { WorkspaceFileSearchSection } from "@/settings/WorkspaceFileSearchSection.js";
 import { MemorySettingsSection } from "@/settings/MemorySettingsSection.js";
+import { DiagnosticsSettingsSection } from "@/settings/DiagnosticsSettingsSection.js";
 import { BrowserSettingsSection } from "@/settings/BrowserSettingsSection.js";
 import { ComputerUseSection } from "@/settings/ComputerUseSection.js";
 import { ShortcutSettingsSection } from "@/settings/ShortcutSettingsSection.js";
@@ -1830,6 +1831,14 @@ export function SettingsPage({
                               onMemoryEnabledChange={handleMemoryEnabledChange}
                               projectMemoryViewerAvailable={Boolean(isDesktop)}
                               workspaceDisplayNames={memoryWorkspaceDisplayNames}
+                            />
+                          </ServiceProvider>
+                        ) : activeSection === "diagnostics" ? (
+                          <ServiceProvider services={localHostServices}>
+                            {/* 日志目录与崩溃归档都是本机文件，始终读本地 Host；与 nav 的 desktop-only gating 对齐。 */}
+                            <DiagnosticsSettingsSection
+                              isDesktop={Boolean(isDesktop)}
+                              diagnosticsService={localHostServices.diagnosticsService}
                             />
                           </ServiceProvider>
                         ) : activeSection === "plugin" ? (
