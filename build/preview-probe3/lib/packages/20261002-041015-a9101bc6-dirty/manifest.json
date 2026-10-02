@@ -1,9 +1,0 @@
-{
-  "createdAt": "2026-10-02T11:10:15Z",
-  "gitSha": "a9101bc6-dirty",
-  "version": "3.14.3",
-  "bundleIdentifier": "dev.zcode.app.preview",
-  "productName": "ZCode Preview",
-  "mainBinarySha256": "ed8a2d8e007008d5582cc9fc8f72c361f32b698dc426c70691072aa18e5be1c8",
-  "buildEnv": { "ZCODE_ENV": "production", "ZCODE_PREVIEW_IDENTITY": "1" }
-}
