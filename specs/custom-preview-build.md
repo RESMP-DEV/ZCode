@@ -15,7 +15,7 @@
 
 1. 以 `ZCODE_ENV=production ZCODE_PREVIEW_IDENTITY=1 pnpm bundle:desktop` 构建，产出 `packages/desktop/dist/mac-arm64/ZCode Preview.app`。
 2. 校验产物的 `CFBundleIdentifier` 必须等于 `dev.zcode.app.preview`，否则中止（防止把 production 身份构建装进本管线后被官方更新器覆盖）。
-3. 将 `.app` 原样 ditto 进不可变快照目录 `<lib-root>/packages/<yyyymmdd-HHMM>-<gitsha8>[-dirty]/`，并写入 `manifest.json`（时间、git sha、版本、bundle id、主二进制 sha256、构建环境）。
+3. 将 `.app` 原样 ditto 进不可变快照目录 `<lib-root>/packages/<yyyymmdd-HHMMSS>-<gitsha8>[-dirty]/`，并写入 `manifest.json`（时间、git sha、版本、bundle id、主二进制 sha256、构建环境）。
 4. 将 `current` 快照安装（先删后 ditto）到 `--app-install-path`（默认 `/Applications/ZCode Preview.app`），并校验安装副本主二进制 sha256 与快照一致。
 5. 安装与校验成功后翻转 `<lib-root>/current` → 新快照，旧目标记为 `previous-good`（相对链接，目录树可整体移动）；`--no-install` 无安装步骤，快照落盘后立即翻转。安装失败时指针不翻转。
 6. 按新旧保留 `--keep-snapshots`（默认 3）个非保护快照；`current`、本次 `previous_target` 与 `previous-good` 链接的实际解析目标永不修剪（三者任一存在即保护）。
