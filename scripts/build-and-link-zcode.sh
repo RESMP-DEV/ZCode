@@ -172,10 +172,13 @@ if ((do_rollback)); then
   previous_snap="$(basename "$(readlink "${lib_root}/previous-good")")"
   rollback_app="${packages_root}/${previous_snap}/${APP_BASENAME}"
   verify_preview_identity "${rollback_app}"
-  rollback_sha="$(app_binary_sha "${rollback_app}")"
   echo "Rolling back: ${current_snap} -> ${previous_snap}"
   if ((do_install)); then
     if ! remove_install_target; then
+      exit 1
+    fi
+    if ! rollback_sha="$(app_binary_sha "${rollback_app}")"; then
+      echo "error: cannot checksum main binary of rollback target: ${rollback_app}" >&2
       exit 1
     fi
     # 安装成功后再翻指针：失败退出时 current 仍指向最近一次成功安装的快照，
