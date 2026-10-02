@@ -226,7 +226,10 @@ if [[ -d "${snapshot_dir}" ]]; then
 fi
 
 echo "Assembling snapshot ${snapshot_name}..."
-mkdir -p "${snapshot_dir}"
+if ! mkdir "${snapshot_dir}"; then
+  echo "error: snapshot already exists or cannot be created: ${snapshot_dir}" >&2
+  exit 1
+fi
 ditto "${app_path}" "${snapshot_dir}/${APP_BASENAME}"
 verify_preview_identity "${snapshot_dir}/${APP_BASENAME}"
 binary_sha="$(app_binary_sha "${snapshot_dir}/${APP_BASENAME}")"

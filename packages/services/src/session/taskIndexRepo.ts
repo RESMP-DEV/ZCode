@@ -1059,8 +1059,9 @@ export class TaskIndexRepo {
 
   /**
    * Session Sweep 的守卫谓词（plan 与 execute 复用同一份）：
-   * 「不在行动中」= 未删除、未钉住、无未读、（已归档 或 终态）、无 cron/off-peak
-   * 身份、最后更新早于 cutoff。pendingInteraction 在 JS 侧按 meta 复核（meta_json 列）。
+   * 「不在行动中」= 未删除、未钉住、无未读、终态 completed/error、无存活
+   * cron/off-peak 身份、最后更新早于 cutoff；归档只影响年龄锚点，不能替代终态。
+   * pendingInteraction 在 JS 侧按 meta 复核（meta_json 列）。
    */
   private static readonly SESSION_SWEEP_GUARD_SQL = [
     "deleted = 0",
@@ -1080,7 +1081,7 @@ export class TaskIndexRepo {
     "((archived = 1 AND COALESCE(archived_at, updated_at) < ?) OR (archived = 0 AND updated_at < ?))",
   ];
 
-  /** 钉住侧候选：同款守卫但 pinned=1 —— 终态/归档、无未读无阻塞、过期的钉住会话。 */
+  /** 钉住侧候选：同款守卫但 pinned=1 —— 终态、无未读无阻塞、过期的钉住会话。 */
   private static readonly SESSION_SWEEP_PINNED_GUARD_SQL = [
     "deleted = 0",
     "pinned = 1",
