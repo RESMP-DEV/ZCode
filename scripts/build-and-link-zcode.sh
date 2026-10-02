@@ -50,10 +50,21 @@ lib_root="${ZCODE_LIB_ROOT:-${HOME}/.local/lib/alphaheng/zcode}"
 keep_snapshots="${ZCODE_KEEP_SNAPSHOTS:-3}"
 
 validate_keep_snapshots() {
-  [[ "${keep_snapshots}" =~ ^(0|[1-9][0-9]*)$ ]] || {
-    echo "error: --keep-snapshots must be a non-negative integer" >&2
+  # 上限 18 位：bash 算术不做溢出检查，更大的值会回绕成 0，
+  # 让修剪比较把所有未保护快照都判定为超限。
+  [[ "${keep_snapshots}" =~ ^(0|[1-9][0-9]{0,17})$ ]] || {
+    echo "error: --keep-snapshots must be a non-negative integer of at most 18 digits" >&2
     exit 1
   }
+}
+
+# 快照枚举：只用 POSIX 结构剥掉目录前缀。
+# 不用 `find -exec basename {} +`：basename 一次收到多条路径时，
+# 第二个会被当成 suffix 丢掉，3 个以上直接 usage error，而 find 仍返回 0。
+list_snapshot_names() {
+  find "$1" -mindepth 1 -maxdepth 1 -type d -print | while IFS= read -r dir; do
+    printf '%s\n' "${dir##*/}"
+  done
 }
 
 while (($# > 0)); do
@@ -140,7 +151,7 @@ remove_install_target() {
 if ((do_list)); then
   mkdir -p "${packages_root}"
   echo "snapshots under ${packages_root}:"
-  find "${packages_root}" -mindepth 1 -maxdepth 1 -type d -exec basename {} + | sort -r | while IFS= read -r snap; do
+  list_snapshot_names "${packages_root}" | sort -r | while IFS= read -r snap; do
     local_marker=""
     [[ "$(readlink "${lib_root}/current" 2>/dev/null)" == "packages/${snap}" ]] && local_marker="${local_marker} [current]"
     [[ "$(readlink "${lib_root}/previous-good" 2>/dev/null)" == "packages/${snap}" ]] && local_marker="${local_marker} [previous-good]"
@@ -194,7 +205,7 @@ if ((do_build)); then
   )
 fi
 
-app_path="$(find "${dist_mac_dir}" -mindepth 1 -maxdepth 1 -type d -name '*.app' -print -quit 2>/dev/null || true)"
+app_path="$(find "${dist_mac_dir}" -mindepth 1 -maxdepth 1 -type d -name '*.app' -print 2>/dev/null | sort | head -n 1 || true)"
 if [[ -z "${app_path}" ]]; then
   echo "error: no bundled app found under ${dist_mac_dir}; run without --no-build first" >&2
   exit 1
@@ -287,7 +298,7 @@ while IFS= read -r snap; do
     rm -rf "${packages_root:?}/${snap}"
     echo "Pruned old snapshot: ${snap}"
   fi
-done < <(find "${packages_root}" -mindepth 1 -maxdepth 1 -type d -exec basename {} + | sort -r)
+done < <(list_snapshot_names "${packages_root}" | sort -r)
 
 if ((do_install)); then
   echo "Smoke check: scripts/smoke-test-zcode-preview.sh"
