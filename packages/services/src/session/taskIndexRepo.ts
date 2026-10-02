@@ -1066,7 +1066,7 @@ export class TaskIndexRepo {
     "deleted = 0",
     "pinned = 0",
     "unread_at IS NULL",
-    "(archived = 1 OR task_status IN ('completed', 'error'))",
+    "task_status IN ('completed', 'error')",
     // cron 拥有权按「归属 automation 是否仍存活」判定：孤儿 run-transcript
     // （automation 已删除/停用）与普通终态会话同样可清理，否则每次派发留下的
     // 会话永远无法被 sweep，成为永久泄漏。
@@ -1085,7 +1085,7 @@ export class TaskIndexRepo {
     "deleted = 0",
     "pinned = 1",
     "unread_at IS NULL",
-    "(archived = 1 OR task_status IN ('completed', 'error'))",
+    "task_status IN ('completed', 'error')",
     // cron 拥有权按「归属 automation 是否仍存活」判定：孤儿 run-transcript
     // （automation 已删除/停用）与普通终态会话同样可清理，否则每次派发留下的
     // 会话永远无法被 sweep，成为永久泄漏。
@@ -1106,7 +1106,7 @@ export class TaskIndexRepo {
   ): boolean {
     if (row.deleted === 1 || row.pinned === 1) return false;
     if (row.unread_at != null) return false;
-    if (row.archived !== 1 && row.task_status !== "completed" && row.task_status !== "error") {
+    if (!isTerminalTaskStatus(row.task_status as ZCodeTaskMeta["status"])) {
       return false;
     }
     if (row.off_peak_task_id != null) return false;
