@@ -62,9 +62,17 @@ validate_keep_snapshots() {
 # 不用 `find -exec basename {} +`：basename 一次收到多条路径时，
 # 第二个会被当成 suffix 丢掉，3 个以上直接 usage error，而 find 仍返回 0。
 list_snapshot_names() {
-  find "$1" -mindepth 1 -maxdepth 1 -type d -print | while IFS= read -r dir; do
+  local status=0
+  local roots=""
+  roots="$(find "$1" -mindepth 1 -maxdepth 1 -type d -print)" || status=$?
+  if ((status != 0)); then
+    echo "error: cannot enumerate snapshots under $1" >&2
+    return "$status"
+  fi
+  [[ -n "${roots}" ]] || return 0
+  while IFS= read -r dir; do
     printf '%s\n' "${dir##*/}"
-  done
+  done <<< "$roots"
 }
 
 while (($# > 0)); do
@@ -134,6 +142,11 @@ remove_install_target() {
     return 0
   fi
   if ! installed_id="$(plist_print "${app_install_path}" CFBundleIdentifier)"; then
+    if [[ "${app_install_path##*/}" == "${APP_BASENAME}" ]]; then
+      echo "warning: removing unreadable or partial Preview install target: ${app_install_path}" >&2
+      rm -rf "${app_install_path:?}"
+      return 0
+    fi
     echo "error: cannot read identity from existing install target: ${app_install_path}" >&2
     return 1
   fi
@@ -181,14 +194,17 @@ if ((do_rollback)); then
       echo "error: cannot checksum main binary of rollback target: ${rollback_app}" >&2
       exit 1
     fi
-    # 安装成功后再翻指针：失败退出时 current 仍指向最近一次成功安装的快照，
-    # 重试不会把 previous-good 顶成从未安装过的目标。
-    ditto "${rollback_app}" "${app_install_path}"
-    installed_sha="$(app_binary_sha "${app_install_path}")"
+    rollback_tmp="${app_install_path}.rollback-new"
+    rm -rf "${rollback_tmp:?}"
+    ditto "${rollback_app}" "${rollback_tmp}"
+    installed_sha="$(app_binary_sha "${rollback_tmp}")"
     if [[ "${installed_sha}" != "${rollback_sha}" ]]; then
       echo "error: rolled-back installed binary checksum does not match snapshot" >&2
+      rm -rf "${rollback_tmp:?}"
       exit 1
     fi
+    remove_install_target
+    mv "${rollback_tmp}" "${app_install_path}"
     echo "Installed: ${app_install_path} (snapshot ${previous_snap})"
   fi
   ln -sfn "packages/${previous_snap}" "${lib_root}/current"
