@@ -1064,9 +1064,16 @@ export class TaskIndexRepo {
     "pinned = 0",
     "unread_at IS NULL",
     "(archived = 1 OR task_status IN ('completed', 'error'))",
-    "cron_automation_id IS NULL",
+    // cron 拥有权按「归属 automation 是否仍存活」判定：孤儿 run-transcript
+    // （automation 已删除/停用）与普通终态会话同样可清理，否则每次派发留下的
+    // 会话永远无法被 sweep，成为永久泄漏。
+    "(cron_automation_id IS NULL OR NOT EXISTS (SELECT 1 FROM automations a WHERE a.automation_id = tasks.cron_automation_id AND a.enabled = 1 AND a.lifecycle_status = 'active'))",
     "off_peak_task_id IS NULL",
-    "updated_at < ?",
+    // 年龄门槛按归档状态分级：手动归档 = 用户显式的「已完成」信号，走固定 1 天
+    // 宽限（参数顺序：第一个 ? 是归档宽限 cutoff，第二个是常规 cutoff）；
+    // 未归档终态行走 minAgeDays（默认 3 天）。auto-archive 产生的归档行本就
+    // ≥3 天，分级只对用户手动归档生效。
+    "((archived = 1 AND updated_at < ?) OR (archived = 0 AND updated_at < ?))",
   ];
 
   /** 钉住侧候选：同款守卫但 pinned=1 —— 终态/归档、无未读无阻塞、过期的钉住会话。 */
@@ -1075,19 +1082,39 @@ export class TaskIndexRepo {
     "pinned = 1",
     "unread_at IS NULL",
     "(archived = 1 OR task_status IN ('completed', 'error'))",
-    "cron_automation_id IS NULL",
+    // cron 拥有权按「归属 automation 是否仍存活」判定：孤儿 run-transcript
+    // （automation 已删除/停用）与普通终态会话同样可清理，否则每次派发留下的
+    // 会话永远无法被 sweep，成为永久泄漏。
+    "(cron_automation_id IS NULL OR NOT EXISTS (SELECT 1 FROM automations a WHERE a.automation_id = tasks.cron_automation_id AND a.enabled = 1 AND a.lifecycle_status = 'active'))",
     "off_peak_task_id IS NULL",
-    "updated_at < ?",
+    // 年龄门槛按归档状态分级：手动归档 = 用户显式的「已完成」信号，走固定 1 天
+    // 宽限（参数顺序：第一个 ? 是归档宽限 cutoff，第二个是常规 cutoff）；
+    // 未归档终态行走 minAgeDays（默认 3 天）。auto-archive 产生的归档行本就
+    // ≥3 天，分级只对用户手动归档生效。
+    "((archived = 1 AND updated_at < ?) OR (archived = 0 AND updated_at < ?))",
   ];
 
-  private sessionSweepGuardHolds(row: TaskIndexRow, cutoff: number): boolean {
+  private sessionSweepGuardHolds(
+    row: TaskIndexRow,
+    archivedCutoff: number,
+    fullCutoff: number,
+  ): boolean {
     if (row.deleted === 1 || row.pinned === 1) return false;
     if (row.unread_at != null) return false;
     if (row.archived !== 1 && row.task_status !== "completed" && row.task_status !== "error") {
       return false;
     }
-    if (row.cron_automation_id != null || row.off_peak_task_id != null) return false;
-    if (row.updated_at >= cutoff) return false;
+    if (row.off_peak_task_id != null) return false;
+    // 事务内复核与 SQL 谓词同语义：cron 孤儿可清理，存活 automation 的 run 受保护。
+    if (row.cron_automation_id != null) {
+      const live = this.getDatabase()
+        .prepare(
+          `SELECT 1 FROM automations WHERE automation_id = ? AND enabled = 1 AND lifecycle_status = 'active' LIMIT 1`,
+        )
+        .get(row.cron_automation_id);
+      if (live) return false;
+    }
+    if (row.updated_at >= (row.archived === 1 ? archivedCutoff : fullCutoff)) return false;
     // meta 仍带阻塞交互 = 还有等用户的动作，一律不删。
     return rowToMeta(row).pendingInteraction == null;
   }
@@ -1098,9 +1125,11 @@ export class TaskIndexRepo {
     limit?: number;
   }): Promise<Array<ZCodeTaskMeta & { archived: boolean; preview: string }>> {
     await this.ensureReady();
-    const minAgeDays = Math.max(1, Math.floor(params.minAgeDays ?? 14));
+    const minAgeDays = Math.max(1, Math.floor(params.minAgeDays ?? 3));
     const limit = Math.max(1, Math.floor(params.limit ?? 60));
-    const cutoff = Date.now() - minAgeDays * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const cutoff = now - minAgeDays * 24 * 60 * 60 * 1000;
+    const archivedCutoff = now - 1 * 24 * 60 * 60 * 1000;
     const rows = this.getDatabase()
       .prepare(
         `SELECT
@@ -1113,7 +1142,7 @@ export class TaskIndexRepo {
         ORDER BY updated_at ASC, created_at ASC, task_id ASC
         LIMIT ?`,
       )
-      .all(cutoff, limit * 2) as unknown as TaskIndexRow[];
+      .all(archivedCutoff, cutoff, limit * 2) as unknown as TaskIndexRow[];
     return rows
       .filter((row) => rowToMeta(row).pendingInteraction == null)
       .slice(0, limit)
@@ -1133,9 +1162,11 @@ export class TaskIndexRepo {
     limit?: number;
   }): Promise<Array<ZCodeTaskMeta & { archived: boolean; preview: string }>> {
     await this.ensureReady();
-    const minAgeDays = Math.max(1, Math.floor(params.minAgeDays ?? 14));
+    const minAgeDays = Math.max(1, Math.floor(params.minAgeDays ?? 3));
     const limit = Math.max(1, Math.floor(params.limit ?? 30));
-    const cutoff = Date.now() - minAgeDays * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const cutoff = now - minAgeDays * 24 * 60 * 60 * 1000;
+    const archivedCutoff = now - 1 * 24 * 60 * 60 * 1000;
     const rows = this.getDatabase()
       .prepare(
         `SELECT
@@ -1148,7 +1179,7 @@ export class TaskIndexRepo {
         ORDER BY updated_at ASC, created_at ASC, task_id ASC
         LIMIT ?`,
       )
-      .all(cutoff, limit) as unknown as TaskIndexRow[];
+      .all(archivedCutoff, cutoff, limit) as unknown as TaskIndexRow[];
     return rows
       .filter((row) => rowToMeta(row).pendingInteraction == null)
       .map((row) => {
@@ -1220,8 +1251,10 @@ export class TaskIndexRepo {
     minAgeDays?: number;
   }): Promise<{ deleted: ZCodeTaskMeta[]; skipped: Array<{ taskId: string; reason: string }> }> {
     await this.ensureReady();
-    const minAgeDays = Math.max(1, Math.floor(params.minAgeDays ?? 14));
-    const cutoff = Date.now() - minAgeDays * 24 * 60 * 60 * 1000;
+    const minAgeDays = Math.max(1, Math.floor(params.minAgeDays ?? 3));
+    const now = Date.now();
+    const cutoff = now - minAgeDays * 24 * 60 * 60 * 1000;
+    const archivedCutoff = now - 1 * 24 * 60 * 60 * 1000;
     const deleted: ZCodeTaskMeta[] = [];
     const skipped: Array<{ taskId: string; reason: string }> = [];
     const seen = new Set<string>();
@@ -1237,7 +1270,7 @@ export class TaskIndexRepo {
           skipped.push({ taskId, reason: "not_found_or_already_deleted" });
           continue;
         }
-        if (!this.sessionSweepGuardHolds(row, cutoff)) {
+        if (!this.sessionSweepGuardHolds(row, archivedCutoff, cutoff)) {
           skipped.push({ taskId, reason: "guard_recheck_failed" });
           continue;
         }
