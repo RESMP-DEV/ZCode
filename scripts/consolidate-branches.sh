@@ -31,6 +31,12 @@ for ref in $(git for-each-ref --format='%(refname:short)' refs/remotes/"$REMOTE"
   # 集成分支自身的远端 ref 不是候选：本地 ref 落后由基准选择处理，
   # 同 tip 的 no-op merge 不应计为「已合并」。
   [ "$branch" = "$INTEGRATION_BRANCH" ] && continue
+  # 就绪判定的名称排除表：「已推送」只是必要条件，recovery/probe/scratch
+  # 类分支推送是为了保全事故现场，不是请求合入集成分支（2026-10-02 事故：
+  # 两个 recovery 分支的探针夹具被自动合入，事后需要清理提交）。
+  case "$branch" in
+    recovery/*|probe*|scratch/*|tmp/*|wip/*|test/*|*probe*) continue ;;
+  esac
   ahead=$(git rev-list --count "$INTEGRATION_BRANCH..$ref" 2>/dev/null) || continue
   if [ "$ahead" -gt 0 ] 2>/dev/null; then
     candidates+=("$branch")
