@@ -95,6 +95,9 @@ while (($# > 0)); do
   esac
 done
 validate_keep_snapshots
+while [[ "${app_install_path}" == */ && "${app_install_path}" != "/" ]]; do
+  app_install_path="${app_install_path%/}"
+done
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -- "${script_dir}/.." && pwd)"
@@ -143,8 +146,10 @@ remove_install_target() {
   fi
   if ! installed_id="$(plist_print "${app_install_path}" CFBundleIdentifier)"; then
     if [[ "${app_install_path##*/}" == "${APP_BASENAME}" ]]; then
-      echo "warning: removing unreadable or partial Preview install target: ${app_install_path}" >&2
-      rm -rf "${app_install_path:?}"
+      local quarantine
+      quarantine="$(mktemp -d "${app_install_path}.unreadable.XXXXXX")"
+      mv "${app_install_path:?}" "${quarantine}/${APP_BASENAME}"
+      echo "warning: preserved unreadable Preview-named install target at: ${quarantine}/${APP_BASENAME}" >&2
       return 0
     fi
     echo "error: cannot read identity from existing install target: ${app_install_path}" >&2
@@ -187,24 +192,30 @@ if ((do_rollback)); then
   verify_preview_identity "${rollback_app}"
   echo "Rolling back: ${current_snap} -> ${previous_snap}"
   if ((do_install)); then
-    if ! remove_install_target; then
-      exit 1
-    fi
     if ! rollback_sha="$(app_binary_sha "${rollback_app}")"; then
       echo "error: cannot checksum main binary of rollback target: ${rollback_app}" >&2
       exit 1
     fi
-    rollback_tmp="${app_install_path}.rollback-new"
-    rm -rf "${rollback_tmp:?}"
+    rollback_stage="$(mktemp -d "${app_install_path}.rollback-new.XXXXXX")"
+    rollback_tmp="${rollback_stage}/${APP_BASENAME}"
+    # shellcheck disable=SC2329
+    cleanup_rollback_stage() {
+      rm -rf "${rollback_stage:?}"
+    }
+    trap cleanup_rollback_stage EXIT
     ditto "${rollback_app}" "${rollback_tmp}"
-    installed_sha="$(app_binary_sha "${rollback_tmp}")"
+    if ! installed_sha="$(app_binary_sha "${rollback_tmp}")"; then
+      echo "error: staged rollback copy has no readable main binary: ${rollback_tmp}" >&2
+      exit 1
+    fi
     if [[ "${installed_sha}" != "${rollback_sha}" ]]; then
       echo "error: rolled-back installed binary checksum does not match snapshot" >&2
-      rm -rf "${rollback_tmp:?}"
       exit 1
     fi
     remove_install_target
     mv "${rollback_tmp}" "${app_install_path}"
+    rmdir "${rollback_stage:?}"
+    trap - EXIT
     echo "Installed: ${app_install_path} (snapshot ${previous_snap})"
   fi
   ln -sfn "packages/${previous_snap}" "${lib_root}/current"
@@ -312,6 +323,9 @@ prev_link_target="$(readlink "${lib_root}/previous-good" 2>/dev/null || true)"
 [[ -n "${prev_link_target}" ]] && protected_prev="$(basename "${prev_link_target}")"
 
 kept=0
+snapshot_names=""
+snapshot_names="$(list_snapshot_names "${packages_root}")" || exit 1
+sorted_snapshot_names="$(sort -r <<< "${snapshot_names}")" || exit 1
 while IFS= read -r snap; do
   [[ -n "${snap}" ]] || continue
   [[ "${snap}" == "${snapshot_name}" || "${snap}" == "${previous_target}" || "${snap}" == "${protected_prev}" ]] && continue
@@ -320,7 +334,7 @@ while IFS= read -r snap; do
     rm -rf "${packages_root:?}/${snap}"
     echo "Pruned old snapshot: ${snap}"
   fi
-done < <(list_snapshot_names "${packages_root}" | sort -r)
+done <<< "${sorted_snapshot_names}"
 
 if ((do_install)); then
   echo "Smoke check: scripts/smoke-test-zcode-preview.sh"
