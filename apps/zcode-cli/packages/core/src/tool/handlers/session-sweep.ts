@@ -118,7 +118,7 @@ export const sessionSweepPlanToolEntry: ToolEntry = {
   metadata: {
     name: "SessionSweepPlan",
     description:
-      "List finished sessions across all workspaces that are eligible for cleanup: not running, not pinned, no unread state, no pending interaction, no cron/off-peak ownership, and inactive for at least minAgeDays. Read-only. Returns each candidate with title, status, dates, workspace, and a short content preview, plus the backlog directory where deleted sessions are backed up.",
+      "List finished sessions across all workspaces that are eligible for cleanup: terminal status, not pinned, no unread state, no pending interaction, no off-peak ownership, no live cron ownership, and past the age gate (3 days by default; manually archived finished sessions use 1 day from archivedAt). Read-only. Returns each candidate with title, status, dates, workspace, and a short content preview, plus the backlog directory where deleted sessions are backed up.",
     modelInstructions: [
       "Call this first in any cleanup sweep. Never guess which sessions exist.",
       "Candidates are already guard-filtered server-side; every one of them is safe to delete from an activity standpoint, so judge only RELEVANCE (is this conversation still worth keeping?).",

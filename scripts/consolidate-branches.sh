@@ -26,7 +26,7 @@ git fetch "$REMOTE" --prune >/dev/null 2>&1 || log "WARN: git fetch $REMOTE fail
 # ---- 候选收集：resmp 远端分支中领先 alphaheng/main 的（本地未推送分支视为 WIP，只报告）----
 candidates=()
 for ref in $(git for-each-ref --format='%(refname:short)' refs/remotes/"$REMOTE"/); do
-  branch="${ref#$REMOTE/}"
+  branch="${ref#"$REMOTE"/}"
   [ "$branch" = "HEAD" ] && continue
   # 集成分支自身的远端 ref 不是候选：本地 ref 落后由基准选择处理，
   # 同 tip 的 no-op merge 不应计为「已合并」。
@@ -96,6 +96,7 @@ if ! git worktree add "$WORKTREE" -B consolidate/run "$base_ref" >/dev/null 2>&1
 fi
 : > "$owner_marker"
 # 中断安全的清理：注册 EXIT 陷阱，成功与失败路径统一回收本轮资源。
+# shellcheck disable=SC2329
 cleanup() {
   git -C "$REPO_ROOT" worktree remove "$WORKTREE" --force >/dev/null 2>&1 || true
   git -C "$REPO_ROOT" branch -D consolidate/run >/dev/null 2>&1 || true
