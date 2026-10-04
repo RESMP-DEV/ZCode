@@ -25,9 +25,13 @@ git fetch "$REMOTE" --prune >/dev/null 2>&1 || log "WARN: git fetch $REMOTE fail
 
 # ---- 候选收集：resmp 远端分支中领先 alphaheng/main 的（本地未推送分支视为 WIP，只报告）----
 candidates=()
-for ref in $(git for-each-ref --format='%(refname:short)' refs/remotes/"$REMOTE"/); do
-  branch="${ref#"$REMOTE"/}"
+# 用完整 refname 枚举：%(refname:short) 会把 refs/remotes/<remote>/HEAD 缩写成
+# 远端名本身（如 "resmp"），剥前缀后变成名为远端名的幽灵分支，每轮 merge 失败
+# 被误报为 conflict——这是此前多轮 "skipped: resmp (conflict)" 的真正根因。
+for ref in $(git for-each-ref --format='%(refname)' refs/remotes/"$REMOTE"/); do
+  branch="${ref#"refs/remotes/$REMOTE/"}"
   [ "$branch" = "HEAD" ] && continue
+  [ -n "$branch" ] || continue
   # 集成分支自身的远端 ref 不是候选：本地 ref 落后由基准选择处理，
   # 同 tip 的 no-op merge 不应计为「已合并」。
   [ "$branch" = "$INTEGRATION_BRANCH" ] && continue
