@@ -47,3 +47,7 @@ cron 后台完成
 5. renderer：`task_archived` 事件清 indicator/overlay；`setTaskUnread` 回包无 `unreadAt` 时回滚 optimistic 未读，不再用 `?? optimisticUnreadAt` 顶替。
 6. dock badge 恢复与可见蓝点一致：无可见未读时 badge 为 0。
 7. `pnpm typecheck` / `pnpm lint` / services 与 ui 测试全绿。
+
+## 部署记录
+
+- 2026-10-04，ZCode（GLM-5.3-FlashX）会话：用户报告 Preview 图标 dock badge 卡在 2、无任何可消未读。实况取证：`~/.zcode/v2/tasks-index.sqlite` 存在 3 条 `archived=1 AND unread_at IS NOT NULL` 的 cron automation 行（Session Cleanup / lapis PR #35 review re-query / Agent instruction parity check，badge 只计开窗 workspace 的 2 条）；运行中的 Preview 是 20260927-2252-da7ad305-dirty 快照，早于本修复（PR #7）。处理：main ff 至 resmp/main（e43c354），`scripts/build-and-link-zcode.sh` 重建并安装快照 20261004-040036-e43c3544-dirty，smoke test 静态检查通过，安装副本 app.asar 内确认含 `0004_archived_clear_unread`。证据：安装输出与 smoke 输出记录于会话；live DB 迁移水位停在 0003，下次启动迁移 0004 一次性清零 3 条僵尸行。非声明：badge 归零需重启 Preview 后才发生（运行中实例仍持旧 renderer 内存态）；迁移清零效果以重启后 `SELECT COUNT(*) FROM tasks WHERE unread_at IS NOT NULL` = 0 为准。
