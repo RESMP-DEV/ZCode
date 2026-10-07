@@ -23,7 +23,7 @@
 
 子命令语义：`--rollback` 交换 `current`/`previous-good` 并重装；`--no-build` 复用最近一次 bundle 产物；`--no-install` 只做快照；`--list` 仅列快照。
 
-`scripts/smoke-test-zcode-preview.sh`：静态校验安装副本的 plist 身份/版本与 `current` 快照 manifest 一致；若 Preview 未运行则 `open -n` 启动、确认进程与 `Application Support/ZCode Preview` userData 出现后用 AppleScript 退出，不影响正在运行的正式版。
+`scripts/smoke-test-zcode-preview.sh`：静态校验安装副本的 plist 身份/版本与 `current` 快照 manifest 一致，并校验 `app.asar` 含 UI-plugin/Gen UI 产物哨兵（`plugin-sandbox`、`plugin-sandbox.html`、`d3-7.9.0.min.js`；自首个包含 662c30b 的快照起为硬性检查，旧快照会如实 FAIL）；若 Preview 未运行则 `open -n` 启动、确认进程与 `Application Support/ZCode Preview` userData 出现后用 AppleScript 退出，不影响正在运行的正式版。
 
 ## 所有权与不变量
 
