@@ -8,7 +8,8 @@ usage() {
 Smoke-test an installed ZCode Preview app bundle.
 
 Static checks: bundle identity (dev.zcode.app.preview), executable present, version
-and main-binary sha256 match the `current` snapshot manifest when one exists.
+and main-binary sha256 match the `current` snapshot manifest when one exists, and
+app.asar contains the UI-plugin/Gen UI sandbox outputs (sentinel strings).
 Live check: if ZCode Preview is not already running, launch it, confirm the process
 and its userData directory appear, then quit it. The official ZCode.app is never touched.
 
@@ -64,6 +65,15 @@ if [[ -L "${current_link}" ]]; then
     echo "OK: matches current snapshot $(basename "$(readlink "${current_link}")")"
   fi
 fi
+
+# UI-plugin/Gen UI 产物哨兵：asar 头是明文 JSON，直接按子串探测。
+# 自首个包含 662c30b 的快照起为硬性检查；缺失说明快照缺 tsup plugin-sandbox 产物。
+asar_path="${app_install_path}/Contents/Resources/app.asar"
+[[ -f "${asar_path}" ]] || fail "app.asar missing: ${asar_path}"
+for sentinel in 'plugin-sandbox' 'plugin-sandbox.html' 'd3-7.9.0.min.js'; do
+  grep -aq "${sentinel}" "${asar_path}" || fail "app.asar missing UI-plugin sentinel: ${sentinel}"
+done
+echo "OK: app.asar contains plugin-sandbox outputs"
 
 if ((do_launch)); then
   user_data_dir="${HOME}/Library/Application Support/ZCode Preview"
