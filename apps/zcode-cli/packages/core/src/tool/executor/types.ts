@@ -18,6 +18,7 @@ import type {
   Model,
   ModelCatalogPort,
   OffPeakPort,
+  SessionSweepPort,
   TopicResourcePort,
   PdfDocumentPort,
   PermissionBrokerPort,
@@ -107,6 +108,7 @@ export interface ToolExecutorOptions {
   artifactStore?: ToolArtifactStorePort;
   automationPort?: AutomationPort;
   offPeakPort?: OffPeakPort;
+  sessionSweepPort?: SessionSweepPort;
   topicResourcePort?: TopicResourcePort;
   sessionStore?: SessionStorePort;
   sessionModePort?: SessionModePort;
@@ -176,6 +178,8 @@ export interface ToolExecutor {
 
 export interface ToolExecuteOptions {
   automationTurn?: boolean;
+  /** 触发本轮的 automation id；CronDelete handler 据此放行仅限自身的自清理删除。 */
+  currentTurnAutomationId?: string;
   offPeakTurn?: boolean;
   signal?: AbortSignal;
   traceContext?: TraceContext;
@@ -221,6 +225,7 @@ export interface ToolExecutorDeps {
   artifactStore?: ToolArtifactStorePort;
   automationPort?: AutomationPort;
   offPeakPort?: OffPeakPort;
+  sessionSweepPort?: SessionSweepPort;
   topicResourcePort?: TopicResourcePort;
   sessionStore?: SessionStorePort;
   sessionModePort?: SessionModePort;
