@@ -232,6 +232,32 @@ function migrateCloseToTrayOnWindowsDefault(value: unknown): unknown {
   };
 }
 
+function migrateTaskAutoArchiveDefaults(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+
+  const raw = value as Record<string, unknown>;
+  if (raw.taskAutoArchiveDefaultsInitialized === true) {
+    return value;
+  }
+
+  const next: Record<string, unknown> = {
+    ...raw,
+    taskAutoArchiveDefaultsInitialized: true,
+  };
+  // 初始化原因：自动归档默认值从「关闭、7 天」升级为「开启、3 天（72h）」。
+  // 仅当用户从未显式保存过对应键时才一次性写入新默认；显式保存过的选择
+  // （包括显式关闭、或自定义过天数）必须原样保留，不做翻转。
+  if (!("taskAutoArchiveEnabled" in raw)) {
+    next.taskAutoArchiveEnabled = true;
+  }
+  if (!("taskAutoArchiveOlderThanDays" in raw)) {
+    next.taskAutoArchiveOlderThanDays = 3;
+  }
+  return next;
+}
+
 function migrateMessageStreamShowReasoningDefault(value: unknown): unknown {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return value;

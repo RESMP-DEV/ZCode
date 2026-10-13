@@ -163,7 +163,7 @@ import type {
   IAccountRequestAuthService,
 } from "#src/model-provider/accountRequestAuthService.js";
 import {
-  mergeAutomationMutationToolDenylist,
+  mergeAutomationDefinitionToolDenylist,
   mergeOffPeakMutationToolDenylist,
 } from "#src/zcode-agent/automationToolPolicy.js";
 import { ZCODE_AGENT_RUNTIME_UNAVAILABLE_CODE } from "./zcodeAgent.js";
@@ -3760,7 +3760,7 @@ export function createZCodeAgentService(
         ...envelope,
         payload: {
           ...payload,
-          toolDisallowlist: mergeAutomationMutationToolDenylist(payload.toolDisallowlist ?? []),
+          toolDisallowlist: mergeAutomationDefinitionToolDenylist(payload.toolDisallowlist ?? []),
         },
       };
     }
