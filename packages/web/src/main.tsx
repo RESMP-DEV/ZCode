@@ -1150,6 +1150,7 @@ export function createHomeOnlyWebRemoteControlServices(): RootServices {
       readMediaPreview: unsupported("fileService.readMediaPreview"),
       readFileRange: unsupported("fileService.readFileRange"),
       readBinaryPreview: unsupported("fileService.readBinaryPreview"),
+      discoverWorkspaceCandidates: unsupported("fileService.discoverWorkspaceCandidates"),
       searchWorkspaceFiles: unsupported("fileService.searchWorkspaceFiles"),
       listWorkspaceFilesLength: unsupported("fileService.listWorkspaceFilesLength"),
       listWorkspaceFilesRange: unsupported("fileService.listWorkspaceFilesRange"),

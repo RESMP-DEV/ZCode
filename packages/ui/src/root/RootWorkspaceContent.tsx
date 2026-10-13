@@ -68,6 +68,7 @@ export function RootWorkspaceContent({
   handleReconnectRemoteWorkspace,
   handleCreateTask,
   handleCreateConversationTask,
+  handleCreateAttentionDigest,
   handleResolveConversationWorkspace,
   handleOpenWorkspace,
   handleOpenFolderFromWorkspaceMenu,
