@@ -56,6 +56,46 @@ export async function checkManaged(
     },
   );
   await check(
+    "PDF and SVG resources cross the real SDK, Agent and MCP with MIME guards intact",
+    async () => {
+      const pdfUri = "fixture://document.pdf";
+      const pdf = await page(`window.readResourceFixture(${JSON.stringify(pdfUri)})`);
+      assert.deepEqual(
+        pdf.result?.contents,
+        [
+          {
+            uri: pdfUri,
+            mimeType: "application/pdf",
+            blob: Buffer.from("%PDF-1.7\n%%EOF\n").toString("base64"),
+          },
+        ],
+        JSON.stringify(pdf),
+      );
+      const rejected = await page("window.readResourceFixture('fixture://unsupported.bin')");
+      // 测试 IPC 的异常只保留 message，页面侧核对拒绝原因；结构化 reason 由 Agent 单测覆盖。
+      assert.match(rejected.error ?? "", /application\/x-msdownload.*not allowed/);
+      const svg = await page("window.readResourceFixture('fixture://vector.svg')");
+      assert.deepEqual(
+        svg.result?.contents,
+        [
+          {
+            uri: "fixture://vector.svg",
+            mimeType: "image/svg+xml",
+            text: '<svg xmlns="http://www.w3.org/2000/svg"/>',
+          },
+        ],
+        JSON.stringify(svg),
+      );
+      assert.equal((await ui("window.managedState()")).phase, "running");
+      for (const uri of [pdfUri, "fixture://unsupported.bin", "fixture://vector.svg"]) {
+        assert.equal(
+          env.agent.events.history.filter((e) => e.type === "read" && e.uri === uri).length,
+          1,
+        );
+      }
+    },
+  );
+  await check(
     "all anchors unmounted plus expired retention keeps running tool and resource feed until completion",
     async () => {
       const guest = env.guests.get(win.webContents.id)!;

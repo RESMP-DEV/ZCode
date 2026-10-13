@@ -1,4 +1,6 @@
 import { querySessionDebug } from "./session-debug.js";
+import { createNodeNetworkCapture } from "@zcode/shared/node";
+import { networkCaptureControlSchema, zcodeProtocolNotifications } from "@zcode/shared";
 import {
   zcodePluginsCancelOperationParamsSchema,
   zcodeProtocolMethods,
@@ -87,6 +89,7 @@ import {
   moveSavedWorkflowOp,
   updateSavedWorkflowMetaOp,
 } from "./saved-workflows.js";
+import { findSavedWorkflowForRunOp, saveSavedWorkflowFromRunOp } from "./saved-workflows-run.js";
 import { listMcpServers } from "./mcp.js";
 import {
   callMcpUiTool,
@@ -129,6 +132,7 @@ import {
   isNotification,
   isRequest,
   isResponse,
+  PROTOCOL_CLIENT_REQUEST_ERROR_CODES,
   ProtocolRequestError,
   type ParamsSchema,
   parseParams,
@@ -153,7 +157,7 @@ type ZCodeProtocolOutboundMessage = ZCodeProtocolNotification | ZCodeProtocolReq
  * 停留旧值。pretrust 授权成功后按 workspaceKey 通知所有匹配的活跃 session 重载。
  * 独立导出为纯调度函数（不触网、不发事件），便于回归测试直接构造 sessions Map。
  */
-async function notifyWorkspaceHookTrustGrantSessions(input: {
+export async function notifyWorkspaceHookTrustGrantSessions(input: {
   grantedWorkspaceKey?: string;
   sessions: Map<string, ZCodeProtocolSessionRecord>;
 }): Promise<void> {
@@ -208,7 +212,7 @@ function getOperationId(params: unknown): string | undefined {
     : undefined;
 }
 
-interface ZCodeProtocolPostResponseBatch {
+export interface ZCodeProtocolPostResponseBatch {
   readonly messages: readonly ZCodeProtocolOutboundMessage[];
   commit(): boolean;
 }
@@ -226,6 +230,12 @@ interface PendingClientRequest<T> {
 }
 
 export class ZCodeProtocolAgentServer {
+  private readonly networkCapture = createNodeNetworkCapture("cli", (batch) => {
+    this.messageSink?.({
+      method: zcodeProtocolNotifications.processNetworkRequests,
+      params: batch,
+    });
+  });
   private readonly runtimeResources: ProtocolRuntimeResources;
   private shutdownPromise?: Promise<void>;
   readonly browserControlPort: BrowserControlPort;
@@ -382,6 +392,7 @@ export class ZCodeProtocolAgentServer {
   }
 
   disconnectClient(error: Error): void {
+    this.networkCapture.setCaptureId(null);
     this.clientDisconnectError = error;
     // 连接关闭后反向请求已不可能收到响应，必须先结束 pending，
     // 否则正在物化 Session 的 handler 会阻塞 connection 的关闭流程。
@@ -460,6 +471,11 @@ export class ZCodeProtocolAgentServer {
       return await this.handleRequest(message);
     }
     if (isNotification(message)) {
+      if (message.method === zcodeProtocolMethods.processNetworkCapture) {
+        const control = networkCaptureControlSchema.safeParse(message.params);
+        if (control.success) this.networkCapture.setCaptureId(control.data.captureId);
+        return undefined;
+      }
       this.logger?.debug("ZCode Protocol notification ignored", {
         event: "zcode_protocol.notification.ignored",
         method: message.method,
@@ -737,6 +753,10 @@ export class ZCodeProtocolAgentServer {
         return await listSavedWorkflowRunsOp(this.context, request.params);
       case zcodeProtocolMethods.workflowsMove:
         return await moveSavedWorkflowOp(this.context, request.params);
+      case zcodeProtocolMethods.workflowsSave:
+        return await saveSavedWorkflowFromRunOp(this.context, request.params);
+      case zcodeProtocolMethods.workflowsForRun:
+        return await findSavedWorkflowForRunOp(this.context, request.params);
       case zcodeProtocolMethods.pluginsResolveSuggestedReference:
         return await this.withPluginOperationSignal(request, (signal) =>
           resolveSuggestedPluginReference(this.context, request.params, signal),
@@ -886,7 +906,10 @@ export class ZCodeProtocolAgentServer {
       throw this.clientDisconnectError;
     }
     if (!this.messageSink) {
-      throw new ProtocolRequestError(-32020, `No ZCode Protocol client is attached for ${method}`);
+      throw new ProtocolRequestError(
+        PROTOCOL_CLIENT_REQUEST_ERROR_CODES.noClientAttached,
+        `No ZCode Protocol client is attached for ${method}`,
+      );
     }
 
     return new Promise<T>((resolve, reject) => {
@@ -905,7 +928,12 @@ export class ZCodeProtocolAgentServer {
       };
       pending.abortHandler = () => {
         cleanup();
-        reject(new ProtocolRequestError(-32021, `Client request cancelled: ${method}`));
+        reject(
+          new ProtocolRequestError(
+            PROTOCOL_CLIENT_REQUEST_ERROR_CODES.cancelled,
+            `Client request cancelled: ${method}`,
+          ),
+        );
       };
       if (options?.signal?.aborted) {
         pending.abortHandler();
@@ -915,9 +943,13 @@ export class ZCodeProtocolAgentServer {
         pending.timeout = setTimeout(() => {
           cleanup();
           reject(
-            new ProtocolRequestError(-32022, `Client request timed out: ${method}`, {
-              timeoutMs: options.timeoutMs,
-            }),
+            new ProtocolRequestError(
+              PROTOCOL_CLIENT_REQUEST_ERROR_CODES.timedOut,
+              `Client request timed out: ${method}`,
+              {
+                timeoutMs: options.timeoutMs,
+              },
+            ),
           );
         }, options.timeoutMs);
       }

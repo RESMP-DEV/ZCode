@@ -52,8 +52,9 @@ export function createPluginUiPagePlane(events: {
     }
   };
   const resetStyle = () => {
+    // webview 释放后容器仍可能覆盖错误态按钮；容器只负责定位，点击由 webview 显式接收。
     root.style.cssText =
-      "display:flow-root;position:relative;width:100%;height:100%;margin:0;border:0;padding:0;overflow:hidden;pointer-events:auto";
+      "display:flow-root;position:relative;width:100%;height:100%;margin:0;border:0;padding:0;overflow:hidden;pointer-events:none";
   };
   const position = (node: HTMLElement, container: HTMLElement, fixed: boolean, layer: number) => {
     const rect = node.getBoundingClientRect();
@@ -198,7 +199,8 @@ export function createPluginUiPagePlane(events: {
       frame.setAttribute("src", handle.shellUrl);
       frame.setAttribute("partition", handle.partition);
       frame.setAttribute("data-testid", "plugin-ui-webview");
-      frame.style.cssText = "display:flex;width:100%;height:100%;border:0;background:transparent";
+      frame.style.cssText =
+        "display:flex;width:100%;height:100%;border:0;background:transparent;pointer-events:auto";
       frame.addEventListener("render-process-gone", events.onCrash);
       frame.addEventListener("dom-ready", ready);
       frame.addEventListener("did-frame-finish-load", frameReady);

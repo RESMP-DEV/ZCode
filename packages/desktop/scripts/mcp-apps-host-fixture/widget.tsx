@@ -34,6 +34,13 @@ app.setNotificationHandler("notifications/resources/updated", (notification) => 
     ? Promise.resolve()
     : new Promise<void>((resolve) => resourceWaiters.set(count, resolve));
 (window as any).resourceEvents = resourceEvents;
+(window as any).readResourceFixture = async (uri: string) => {
+  try {
+    return { result: await app.readServerResource({ uri }) };
+  } catch (error) {
+    return { error: String(error) };
+  }
+};
 const pageCalls: { key: string; aborted: boolean }[] = [];
 const abortWaiters = new Map<string, () => void>();
 (window as any).waitPageAbort = (key: string) =>

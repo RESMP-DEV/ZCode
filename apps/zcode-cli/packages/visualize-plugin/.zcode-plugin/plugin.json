@@ -5,6 +5,6 @@
   "author": {
     "name": "ZCode"
   },
-  "license": "SEE LICENSE IN skills/visualize/LICENSE.md",
+  "license": "Apache-2.0",
   "skills": "skills"
 }

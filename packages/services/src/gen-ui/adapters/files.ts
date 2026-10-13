@@ -1,7 +1,6 @@
 import { constants } from "node:fs";
 import { lstat, open, realpath } from "node:fs/promises";
 import { isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
-import { getGenUiOutputDirectory } from "@zcode/shared/node";
 import {
   GEN_UI_HTML_MAX_BYTES,
   genUiStateTargetSchema,
@@ -20,31 +19,17 @@ export async function readGenUiDocument(
   outputRoot: string,
 ): Promise<GenUiDocument> {
   const input = genUiStateTargetSchema.parse(raw);
-  if (!isAbsolute(input.path) || !isAbsolute(input.workspacePath))
+  if (!isAbsolute(outputRoot) || !isAbsolute(input.path) || !isAbsolute(input.workspacePath))
     throw new Error("Invalid executor path");
   const root = resolve(outputRoot),
-    sessionRoot = getGenUiOutputDirectory(outputRoot, {
-      workspacePath: input.workspacePath,
-      workspaceIdentity: input.workspaceIdentity,
-      sessionId: input.sessionId,
-    }),
     file = normalize(input.path);
-  const sessionChild = relative(sessionRoot, file);
-  if (
-    !sessionChild ||
-    sessionChild === ".." ||
-    sessionChild.startsWith(`..${sep}`) ||
-    isAbsolute(sessionChild)
-  )
-    throw new Error("Gen UI file is outside this session output directory");
   const child = relative(root, file);
+  // 根因：fork 会保留父会话的 HTML 路径，生成目录分组不能作为当前会话的读取限制。
+  // 读取范围只由执行端 Host 的固定输出根目录决定，widget state 仍使用当前会话身份。
+  if (!child || child === ".." || child.startsWith(`..${sep}`) || isAbsolute(child))
+    throw new Error("Gen UI file is outside the host output directory");
   // 修复依据：realpath 后再做前缀判断仍可能放行替换中的符号链接；逐级拒绝链接并核对打开的文件身份。
   const canonicalRoot = await realpath(root);
-  getGenUiOutputDirectory(canonicalRoot, {
-    workspacePath: await realpath(input.workspacePath),
-    workspaceIdentity: input.workspaceIdentity,
-    sessionId: input.sessionId,
-  });
   let current = canonicalRoot;
   for (const segment of child.split(sep)) {
     current = join(current, segment);
@@ -53,9 +38,13 @@ export async function readGenUiDocument(
   }
   const before = await lstat(current);
   const canonicalFile = await realpath(current);
-  const canonicalSessionRoot = join(canonicalRoot, relative(root, sessionRoot));
-  const canonicalChild = relative(canonicalSessionRoot, canonicalFile);
-  if (!canonicalChild || canonicalChild.startsWith(`..${sep}`) || isAbsolute(canonicalChild))
+  const canonicalChild = relative(canonicalRoot, canonicalFile);
+  if (
+    !canonicalChild ||
+    canonicalChild === ".." ||
+    canonicalChild.startsWith(`..${sep}`) ||
+    isAbsolute(canonicalChild)
+  )
     throw new Error("Gen UI file escaped the output directory");
   if (!before.isFile() || before.size > GEN_UI_HTML_MAX_BYTES)
     throw new Error("Gen UI requires a regular file under 5 MB");

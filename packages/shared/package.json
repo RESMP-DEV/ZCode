@@ -23,7 +23,8 @@
     "./workspace-hook-mutation": "./src/workspace-hook-mutation.ts",
     "./workspace-hook-review-monotonicity": "./src/workspace-hook-review-monotonicity.ts",
     "./workspace-hook-trust-store-file": "./src/workspace-hook-trust-store-file.ts",
-    "./gen-ui": "./src/gen-ui/index.ts"
+    "./gen-ui": "./src/gen-ui/index.ts",
+    "./request-security": "./src/request-security-edition/index.ts"
   },
   "scripts": {
     "lint": "oxlint",

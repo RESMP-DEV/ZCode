@@ -6,7 +6,12 @@ import type {
   ZCodeProtocolRequestId,
   ZCodeProtocolResponse,
 } from "@zcode/shared";
-import { zcodeProtocolMessageSchema, zcodeProtocolMethods } from "@zcode/shared";
+import {
+  networkCaptureControlSchema,
+  zcodeProtocolMessageSchema,
+  zcodeProtocolMethods,
+  zcodeProtocolNotifications,
+} from "@zcode/shared";
 import type { Logger } from "@zcode/contracts";
 
 type ZCodeProtocolOutgoingMessage =
@@ -94,6 +99,15 @@ export class ZCodeProtocolNdjsonConnection {
 
   send(message: ZCodeProtocolOutgoingMessage): void {
     if (this.terminal) return;
+    // 观测可丢弃，不能在 stdout 背压时无界积压或挤占业务协议输出。
+    if (
+      "method" in message &&
+      message.method === zcodeProtocolNotifications.processNetworkRequests &&
+      ((this.options.output as NodeJS.WritableStream & { writableLength?: number })
+        .writableLength ?? 0) >=
+        256 * 1024
+    )
+      return;
     try {
       this.options.output.write(`${JSON.stringify(message)}\n`);
     } catch (error) {
@@ -178,6 +192,19 @@ export class ZCodeProtocolNdjsonConnection {
     if (this.terminal) return;
     const message = this.decodeLine(line);
     if (!message) {
+      return;
+    }
+    if (
+      !("id" in message) &&
+      "method" in message &&
+      message.method === zcodeProtocolMethods.processNetworkCapture
+    ) {
+      // 启停是进程观测控制，不等待正在执行的生成任务，也不进入 CommandInbox。
+      if (networkCaptureControlSchema.safeParse(message.params).success) {
+        void this.handleMessage(message).catch(() => {
+          /* 观测失败不关闭业务连接 */
+        });
+      }
       return;
     }
     if ("id" in message && ("result" in message || "error" in message)) {

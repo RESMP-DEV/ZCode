@@ -1,194 +1,375 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ZCodeTaskMeta, ZCodeWorkspaceTaskListChanged } from "@zcode/shared";
-import { buildTaskEntityKey } from "../src/lib/taskQueryCache.js";
-import { countAllUnreadTasks } from "../src/lib/unreadTaskCount.js";
-import { syncTaskUnreadFromStatusWorkspaceEvent } from "../src/lib/taskStatusUnreadSync.js";
-import { useTaskQueryCacheStore } from "../src/store/taskQueryCacheStore.js";
-import { useZCodeSessionStore } from "../src/store/zcodeSessionStore.js";
+import {
+  resetTaskStatusUnreadSyncForTest,
+  shouldMarkStatusEventTaskUnread,
+  syncTaskUnreadFromStatusWorkspaceEvent,
+} from "@/lib/taskStatusUnreadSync.js";
+import {
+  buildTaskEntityKey,
+  buildTaskListCacheDescriptor,
+  buildTaskListCacheKeyFromDescriptor,
+} from "@/lib/taskQueryCache.js";
+import { getTaskUnreadIndicator, useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
+import { useTaskQueryCacheStore } from "@/store/taskQueryCacheStore.js";
 
-// specs/archived-task-unread-invariant.md：归档任务不持未读。
-// renderer 镜像不变量：task_archived 事件清 indicator/overlay；
-// setTaskUnread 回包没有 unreadAt（服务端拒绝归档行未读）时回滚乐观未读，
-// 不再用乐观值顶替，否则 dock badge 留下 UI 内无处展示的僵尸未读。
-
-const WORKSPACE_PATH = "/ws/unread-sync";
-
-function buildTaskMeta(params: {
-  taskId: string;
-  status?: ZCodeTaskMeta["status"];
-  unreadAt?: number;
-}): ZCodeTaskMeta {
+function createTaskMeta(overrides: Partial<ZCodeTaskMeta> = {}): ZCodeTaskMeta {
   return {
-    taskId: params.taskId,
-    traceId: `trace-${params.taskId}`,
-    title: params.taskId,
-    workspacePath: WORKSPACE_PATH,
-    createdAt: 1000,
-    updatedAt: 2000,
-    mode: "build",
-    ...(params.status ? { status: params.status } : {}),
-    ...(typeof params.unreadAt === "number" ? { unreadAt: params.unreadAt } : {}),
+    taskId: "task-1",
+    traceId: "trace-1",
+    title: "Task 1",
+    workspacePath: "/repo/demo",
+    createdAt: 1,
+    updatedAt: 2,
+    mode: "default",
+    provider: "codex",
+    ...overrides,
   };
 }
 
-function buildEvent(params: {
-  taskId: string;
-  reason: ZCodeWorkspaceTaskListChanged["reason"];
-  taskMeta?: ZCodeTaskMeta;
-  unreadSignal?: "background_terminal";
-}): ZCodeWorkspaceTaskListChanged {
+function createStatusEvent(
+  taskMeta: ZCodeTaskMeta,
+  overrides: Partial<ZCodeWorkspaceTaskListChanged> = {},
+): ZCodeWorkspaceTaskListChanged {
   return {
     type: "workspace_task_list_changed",
-    workspacePath: WORKSPACE_PATH,
-    taskId: params.taskId,
-    reason: params.reason,
-    ...(params.taskMeta ? { taskMeta: params.taskMeta } : {}),
-    ...(params.unreadSignal ? { unreadSignal: params.unreadSignal } : {}),
+    workspacePath: taskMeta.workspacePath,
+    workspaceIdentity: taskMeta.workspaceIdentity,
+    taskId: taskMeta.taskId,
+    reason: "task_status_changed",
+    taskMeta,
+    unreadSignal: "background_terminal",
+    ...overrides,
   };
 }
 
-interface RecordedUnreadCall {
-  taskId: string;
-  unread: boolean;
+function createService() {
+  return {
+    setTaskUnread: vi.fn(
+      async (params: {
+        taskId: string;
+        workspacePath: string;
+        workspaceIdentity?: string;
+        unread: boolean;
+      }) =>
+        createTaskMeta({
+          taskId: params.taskId,
+          workspacePath: params.workspacePath,
+          workspaceIdentity: params.workspaceIdentity,
+          unreadAt: params.unread ? 123 : undefined,
+        }),
+    ),
+  };
 }
 
-function buildService(metaByCall: Array<ZCodeTaskMeta | undefined>): {
-  service: {
-    setTaskUnread: (params: { taskId: string; unread: boolean }) => Promise<ZCodeTaskMeta>;
-  };
-  calls: RecordedUnreadCall[];
-} {
-  const calls: RecordedUnreadCall[] = [];
-  const service = {
-    setTaskUnread: (params: { taskId: string; unread: boolean }) => {
-      calls.push({ taskId: params.taskId, unread: params.unread });
-      const meta = metaByCall[calls.length - 1];
-      return Promise.resolve(meta ?? buildTaskMeta({ taskId: params.taskId }));
+function seedQueryTask(task: ZCodeTaskMeta): string {
+  const descriptor = buildTaskListCacheDescriptor({
+    kind: "workspace",
+    workspaceScopes: [
+      {
+        workspacePath: task.workspacePath,
+        workspaceIdentity: task.workspaceIdentity,
+      },
+    ],
+    sortBy: "updated",
+    expanded: true,
+  });
+  const queryKey = buildTaskListCacheKeyFromDescriptor(descriptor);
+  useTaskQueryCacheStore.getState().setQueryResult({
+    queryKey,
+    descriptor,
+    items: [task],
+    total: 1,
+    hasMore: false,
+  });
+  return queryKey;
+}
+
+function getQueryTask(task: ZCodeTaskMeta): ZCodeTaskMeta | undefined {
+  return useTaskQueryCacheStore.getState().taskMetaByEntityKey[buildTaskEntityKey(task)];
+}
+
+function syncStatusEvent(
+  params: Omit<Parameters<typeof syncTaskUnreadFromStatusWorkspaceEvent>[0], "activeWorkspace"> & {
+    activeWorkspace?: { workspacePath: string; workspaceIdentity?: string };
+  },
+): void {
+  syncTaskUnreadFromStatusWorkspaceEvent({
+    ...params,
+    activeWorkspace: params.activeWorkspace ?? {
+      workspacePath: params.event.workspacePath,
+      ...(params.event.workspaceIdentity
+        ? { workspaceIdentity: params.event.workspaceIdentity }
+        : {}),
     },
-  };
-  return { service, calls };
-}
-
-async function flushAsync(): Promise<void> {
-  await new Promise((resolve) => setImmediate(resolve));
-}
-
-// node:test 同文件共享模块级 store 状态；badge 计数跨 workspace 全量统计，
-// 每条用例前清空两个 store，保证断言只反映当前用例。
-function resetStores(): void {
-  useTaskQueryCacheStore.getState().clearAll();
-  useZCodeSessionStore.setState({ workspaces: {} });
-}
-
-function badgeUnreadCount(taskId: string): number {
-  const workspaceState = useZCodeSessionStore
-    .getState()
-    .getWorkspaceState(WORKSPACE_PATH, undefined);
-  assert.ok(workspaceState, `workspace state 应按需创建 taskId=${taskId}`);
-  return countAllUnreadTasks({ [WORKSPACE_PATH]: workspaceState });
-}
-
-function queryOverlayUnreadAt(taskId: string): number | null | undefined {
-  return useTaskQueryCacheStore.getState().taskUnreadOverlayByEntityKey[
-    buildTaskEntityKey({ taskId, workspacePath: WORKSPACE_PATH })
-  ];
-}
-
-test("后台终态未读：服务端确认后落地 indicator 与 overlay", async () => {
-  resetStores();
-  const { service, calls } = buildService([
-    buildTaskMeta({ taskId: "task-commit", status: "completed", unreadAt: 1234 }),
-  ]);
-
-  syncTaskUnreadFromStatusWorkspaceEvent({
-    activeWorkspace: { workspacePath: "/ws/elsewhere" },
-    event: buildEvent({
-      taskId: "task-commit",
-      reason: "task_status_changed",
-      taskMeta: buildTaskMeta({ taskId: "task-commit", status: "completed" }),
-      unreadSignal: "background_terminal",
-    }),
-    service,
   });
-  await flushAsync();
+}
 
-  assert.deepEqual(calls, [{ taskId: "task-commit", unread: true }]);
-  assert.equal(badgeUnreadCount("task-commit"), 1, "已确认未读计入 dock badge");
-  assert.equal(queryOverlayUnreadAt("task-commit"), 1234, "overlay 对账服务端值");
-});
-
-test("服务端拒绝归档行未读：回滚乐观未读，不用乐观值顶替", async () => {
-  resetStores();
-  const { service, calls } = buildService([
-    // 服务端守卫拒绝后回包不带 unreadAt（归档行不持未读）。
-    buildTaskMeta({ taskId: "task-refused" }),
-  ]);
-
-  syncTaskUnreadFromStatusWorkspaceEvent({
-    activeWorkspace: { workspacePath: "/ws/elsewhere" },
-    event: buildEvent({
-      taskId: "task-refused",
-      reason: "task_status_changed",
-      taskMeta: buildTaskMeta({ taskId: "task-refused", status: "completed" }),
-      unreadSignal: "background_terminal",
-    }),
-    service,
+describe("task status unread sync", () => {
+  afterEach(() => {
+    resetTaskStatusUnreadSyncForTest();
+    useZCodeSessionStore.setState({ workspaces: {} });
+    useTaskQueryCacheStore.getState().clearAll();
   });
-  await flushAsync();
 
-  assert.equal(calls.length, 1, "仍发起一次写请求");
-  assert.equal(badgeUnreadCount("task-refused"), 0, "拒绝后不得残留 renderer-only 未读");
-  assert.equal(
-    queryOverlayUnreadAt("task-refused"),
-    undefined,
-    "overlay 回滚后删除，不保留乐观未读",
-  );
-});
+  it("inactive terminal status event marks the query row unread before persistence settles", async () => {
+    const task = createTaskMeta({ status: "completed" });
+    const service = createService();
+    const store = useZCodeSessionStore.getState();
+    seedQueryTask(task);
+    store.setActiveTaskId("/repo/demo", "other-task");
 
-test("task_archived 事件：清 indicator 与 overlay，不发起未读写", async () => {
-  resetStores();
-  const { service, calls } = buildService([]);
-  const store = useZCodeSessionStore.getState();
-  // 归档前任务已带未读（归档前终态写入）。
-  store.setTaskUnreadIndicator(WORKSPACE_PATH, "task-archived", true, undefined);
-  assert.equal(badgeUnreadCount("task-archived"), 1, "前置：归档前存在未读");
+    syncStatusEvent({
+      event: createStatusEvent(task),
+      service,
+    });
 
-  syncTaskUnreadFromStatusWorkspaceEvent({
-    activeWorkspace: { workspacePath: "/ws/elsewhere" },
-    event: buildEvent({
-      taskId: "task-archived",
-      reason: "task_archived",
-      taskMeta: buildTaskMeta({ taskId: "task-archived" }),
-    }),
-    service,
+    expect(service.setTaskUnread).toHaveBeenCalledWith({
+      taskId: "task-1",
+      workspacePath: "/repo/demo",
+      unread: true,
+    });
+    expect(getQueryTask(task)?.unreadAt).toEqual(expect.any(Number));
+    expect(
+      getTaskUnreadIndicator(
+        useZCodeSessionStore.getState().getWorkspaceState("/repo/demo"),
+        "task-1",
+      ),
+    ).toBe(true);
+
+    await vi.waitFor(() => expect(getQueryTask(task)?.unreadAt).toBe(123));
+    expect(
+      useTaskQueryCacheStore.getState().taskUnreadOverlayByEntityKey[buildTaskEntityKey(task)],
+    ).toBe(123);
+
+    seedQueryTask({ ...task, unreadAt: 123 });
+    expect(useTaskQueryCacheStore.getState().taskUnreadOverlayByEntityKey).toEqual({});
   });
-  await flushAsync();
 
-  assert.deepEqual(calls, [], "归档事件不得触发未读写");
-  assert.equal(badgeUnreadCount("task-archived"), 0, "归档后未读清零");
-});
+  it("keeps the unread overlay when an older membership result arrives in flight", async () => {
+    const task = createTaskMeta({ status: "completed" });
+    let resolvePersistence!: (taskMeta: ZCodeTaskMeta) => void;
+    const service = {
+      setTaskUnread: vi.fn(
+        () =>
+          new Promise<ZCodeTaskMeta>((resolve) => {
+            resolvePersistence = resolve;
+          }),
+      ),
+    };
+    const queryKey = seedQueryTask(task);
+    const descriptor = useTaskQueryCacheStore.getState().resultsByQueryKey[queryKey]!.descriptor;
+    useZCodeSessionStore.getState().setActiveTaskId("/repo/demo", "other-task");
 
-test("事件携带已持久化 unreadAt：只对账 indicator，不重复落库", async () => {
-  resetStores();
-  const { service, calls } = buildService([]);
+    syncStatusEvent({ event: createStatusEvent(task), service });
+    const optimisticUnreadAt = getQueryTask(task)?.unreadAt;
 
-  syncTaskUnreadFromStatusWorkspaceEvent({
-    activeWorkspace: { workspacePath: "/ws/elsewhere" },
-    event: buildEvent({
-      taskId: "task-persisted",
-      reason: "task_status_changed",
-      taskMeta: buildTaskMeta({
-        taskId: "task-persisted",
-        status: "completed",
-        unreadAt: 4321,
+    useTaskQueryCacheStore.getState().setQueryResult({
+      queryKey,
+      descriptor,
+      items: [task],
+      total: 1,
+      hasMore: false,
+    });
+
+    expect(optimisticUnreadAt).toEqual(expect.any(Number));
+    expect(getQueryTask(task)?.unreadAt).toBe(optimisticUnreadAt);
+
+    resolvePersistence(createTaskMeta({ status: "completed", unreadAt: 456 }));
+    await vi.waitFor(() => expect(getQueryTask(task)?.unreadAt).toBe(456));
+
+    // RPC 已成功后，更早发出的 membership 请求仍可能迟到，不能盖掉服务端确认值。
+    useTaskQueryCacheStore.getState().setQueryResult({
+      queryKey,
+      descriptor,
+      items: [task],
+      total: 1,
+      hasMore: false,
+    });
+    expect(getQueryTask(task)?.unreadAt).toBe(456);
+
+    useTaskQueryCacheStore.getState().setQueryResult({
+      queryKey,
+      descriptor,
+      items: [{ ...task, unreadAt: 456 }],
+      total: 1,
+      hasMore: false,
+    });
+    expect(useTaskQueryCacheStore.getState().taskUnreadOverlayByEntityKey).toEqual({});
+  });
+
+  it("stores the overlay before a newly created task row is published", async () => {
+    const task = createTaskMeta({ status: "completed" });
+    let resolvePersistence!: (taskMeta: ZCodeTaskMeta) => void;
+    const service = {
+      setTaskUnread: vi.fn(
+        () =>
+          new Promise<ZCodeTaskMeta>((resolve) => {
+            resolvePersistence = resolve;
+          }),
+      ),
+    };
+    useZCodeSessionStore.getState().setActiveTaskId("/repo/demo", "other-task");
+
+    syncStatusEvent({ event: createStatusEvent(task), service });
+
+    const taskEntityKey = buildTaskEntityKey(task);
+    expect(useTaskQueryCacheStore.getState().taskUnreadOverlayByEntityKey[taskEntityKey]).toEqual(
+      expect.any(Number),
+    );
+    resolvePersistence(createTaskMeta({ status: "completed", unreadAt: 789 }));
+    await vi.waitFor(() =>
+      expect(useTaskQueryCacheStore.getState().taskUnreadOverlayByEntityKey[taskEntityKey]).toBe(
+        789,
+      ),
+    );
+
+    seedQueryTask(task);
+    expect(getQueryTask(task)?.unreadAt).toBe(789);
+    expect(useTaskQueryCacheStore.getState().taskUnreadOverlayByEntityKey[taskEntityKey]).toBe(789);
+
+    seedQueryTask({ ...task, unreadAt: 789 });
+    expect(useTaskQueryCacheStore.getState().taskUnreadOverlayByEntityKey).toEqual({});
+  });
+
+  it("active terminal status event stays read", () => {
+    const task = createTaskMeta({ status: "completed" });
+    const service = createService();
+    const store = useZCodeSessionStore.getState();
+    seedQueryTask(task);
+    store.setActiveTaskId("/repo/demo", "task-1");
+
+    syncStatusEvent({
+      event: createStatusEvent(task),
+      service,
+    });
+
+    expect(service.setTaskUnread).not.toHaveBeenCalled();
+    expect(getQueryTask(task)?.unreadAt).toBeUndefined();
+    expect(
+      getTaskUnreadIndicator(
+        useZCodeSessionStore.getState().getWorkspaceState("/repo/demo"),
+        "task-1",
+      ),
+    ).toBe(false);
+  });
+
+  it("marks the previous workspace task unread after the user switches workspaces", async () => {
+    const task = createTaskMeta({ status: "completed" });
+    const service = createService();
+    seedQueryTask(task);
+    // 切换 workspace 不会清掉旧 workspace 保存的 activeTaskId；全局焦点已经离开时，
+    // 这个 task 的终态仍应被视为后台完成。
+    useZCodeSessionStore.getState().setActiveTaskId("/repo/demo", task.taskId);
+
+    syncStatusEvent({
+      event: createStatusEvent(task),
+      service,
+      activeWorkspace: { workspacePath: "/repo/other" },
+    });
+
+    expect(service.setTaskUnread).toHaveBeenCalledWith({
+      taskId: task.taskId,
+      workspacePath: task.workspacePath,
+      unread: true,
+    });
+    await vi.waitFor(() => expect(getQueryTask(task)?.unreadAt).toBe(123));
+  });
+
+  it("ignores running status events", () => {
+    expect(
+      shouldMarkStatusEventTaskUnread({
+        activeTaskId: "other-task",
+        activeWorkspace: { workspacePath: "/repo/demo" },
+        event: createStatusEvent(createTaskMeta({ status: "running" })),
       }),
-      unreadSignal: "background_terminal",
-    }),
-    service,
+    ).toBe(false);
   });
-  await flushAsync();
 
-  assert.deepEqual(calls, [], "已有持久化未读时不得重复写库");
-  assert.equal(badgeUnreadCount("task-persisted"), 1);
+  it("ignores terminal status refreshes without an explicit unread signal", () => {
+    const task = createTaskMeta({ status: "completed" });
+    const service = createService();
+    seedQueryTask(task);
+    useZCodeSessionStore.getState().setActiveTaskId("/repo/demo", "other-task");
+
+    syncStatusEvent({
+      event: createStatusEvent(task, { unreadSignal: undefined }),
+      service,
+    });
+
+    expect(service.setTaskUnread).not.toHaveBeenCalled();
+    expect(getQueryTask(task)?.unreadAt).toBeUndefined();
+  });
+
+  it("dedupes duplicated status events from multiple sidebar subscriptions", () => {
+    const task = createTaskMeta({ status: "error", updatedAt: 9 });
+    const event = createStatusEvent(task);
+    const service = createService();
+    const store = useZCodeSessionStore.getState();
+    seedQueryTask(task);
+    store.setActiveTaskId("/repo/demo", "other-task");
+
+    syncStatusEvent({ event, service });
+    syncStatusEvent({ event, service });
+
+    expect(service.setTaskUnread).toHaveBeenCalledTimes(1);
+  });
+
+  it("rolls back query and legacy unread state when persistence fails", async () => {
+    const task = createTaskMeta({ status: "completed" });
+    const queryKey = seedQueryTask(task);
+    const service = {
+      setTaskUnread: vi.fn(async () => {
+        throw new Error("write failed");
+      }),
+    };
+    useZCodeSessionStore.getState().setActiveTaskId("/repo/demo", "other-task");
+
+    syncStatusEvent({ event: createStatusEvent(task), service });
+    expect(getQueryTask(task)?.unreadAt).toEqual(expect.any(Number));
+
+    await vi.waitFor(() => {
+      expect(getQueryTask(task)?.unreadAt).toBeUndefined();
+      expect(useTaskQueryCacheStore.getState().taskUnreadOverlayByEntityKey).toEqual({});
+      expect(useTaskQueryCacheStore.getState().resultsByQueryKey[queryKey]?.stale).toBe(true);
+      expect(
+        getTaskUnreadIndicator(
+          useZCodeSessionStore.getState().getWorkspaceState("/repo/demo"),
+          task.taskId,
+        ),
+      ).toBe(false);
+    });
+  });
+
+  it("isolates unread overlays by workspace identity", async () => {
+    const firstTask = createTaskMeta({
+      workspaceIdentity: "ssh://host-a/repo",
+      status: "completed",
+    });
+    const siblingTask = createTaskMeta({
+      workspaceIdentity: "ssh://host-b/repo",
+      status: "completed",
+    });
+    seedQueryTask(firstTask);
+    seedQueryTask(siblingTask);
+    const service = createService();
+    useZCodeSessionStore
+      .getState()
+      .setActiveTaskId(firstTask.workspacePath, "other-task", firstTask.workspaceIdentity);
+
+    syncStatusEvent({
+      event: createStatusEvent(firstTask),
+      service,
+    });
+
+    expect(getQueryTask(firstTask)?.unreadAt).toEqual(expect.any(Number));
+    expect(getQueryTask(siblingTask)?.unreadAt).toBeUndefined();
+    expect(service.setTaskUnread).toHaveBeenCalledWith({
+      taskId: firstTask.taskId,
+      workspacePath: firstTask.workspacePath,
+      workspaceIdentity: firstTask.workspaceIdentity,
+      unread: true,
+    });
+    await vi.waitFor(() => expect(getQueryTask(firstTask)?.unreadAt).toBe(123));
+  });
 });

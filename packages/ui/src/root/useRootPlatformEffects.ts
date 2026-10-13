@@ -10,16 +10,12 @@ import { dismissToast, toast, updateToast } from "@/components/ui/toast.js";
 import { matchesPrimaryShortcut } from "@/lib/keyboardShortcuts.js";
 import { isShortcutRecordingActive } from "@/shortcuts/bindings.js";
 import { isRendererReloadNavigation } from "@/lib/rendererNavigation.js";
-import { useOptionalBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
-import { buildTaskEntityKey } from "@/lib/taskQueryCache.js";
 import {
-  reconcileTaskQueryCacheUnread,
-  rollbackTaskQueryCacheUnread,
-  setTaskQueryCacheUnreadOverlay,
-  useTaskQueryCacheStore,
-} from "@/store/taskQueryCacheStore.js";
-import { bumpTaskListMembershipVersion } from "@/v4/taskListMembershipVersion.js";
-import { shouldPublishCompleteWorkspaceSnapshot } from "@/root/rootPlatformWorkspaceSync.js";
+  buildConnectedRemoteWorkspaceSessionTargets,
+  buildWebRemoteControlWorkspaceTargets,
+  shouldPublishCompleteWorkspaceSnapshot,
+} from "@/root/rootPlatformWorkspaceSync.js";
+import { useOptionalBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import {
   createShareImportIntent,
   isShareImportIntentSame,
@@ -51,6 +47,8 @@ export function useRootPlatformEffects({
   reconnectingRemoteWorkspaceKeys = [],
   remoteWorkspaceErrorByWorkspaceKey = {},
   totalUnreadTaskCount,
+  webRemoteControlFeatureEnabled = false,
+  webRemoteControlSessionActive = false,
   hasCompletedFullTabRestore = true,
   intl,
   isRestoringOAuthSession,
@@ -84,6 +82,8 @@ export function useRootPlatformEffects({
   reconnectingRemoteWorkspaceKeys?: string[];
   remoteWorkspaceErrorByWorkspaceKey?: Record<string, string>;
   totalUnreadTaskCount: number;
+  webRemoteControlFeatureEnabled?: boolean;
+  webRemoteControlSessionActive?: boolean;
   hasCompletedFullTabRestore?: boolean;
   intl: ReturnType<typeof import("@/i18n/IntlProvider.js").useZCodeIntl>["intl"];
   isRestoringOAuthSession: boolean;
@@ -226,40 +226,6 @@ export function useRootPlatformEffects({
             targetWorkspacePath,
             targetWorkspaceIdentity ? { workspaceIdentity: targetWorkspaceIdentity } : undefined,
           );
-          // 修复原因：此前这里只调用 setActiveTaskId（清 Renderer 本地未读映射），
-          // 不走任务行点击的持久化未读清除，导致用户正看着的任务仍被 dock 角标计数、
-          // 重启后蓝点回弹。这里对齐 handleSelectTask 的 compare-and-clear 路径；
-          // 远端 workspace 断开时保守跳过持久化清除，避免把未读写到错误的远端连接上。
-          if (taskMeta && !targetWorkspaceIdentity && typeof taskMeta.unreadAt === "number") {
-            const targetTask = {
-              taskId,
-              workspacePath: targetWorkspacePath,
-            };
-            const taskEntityKey = buildTaskEntityKey(targetTask);
-            const cachedUnreadAt =
-              useTaskQueryCacheStore.getState().taskMetaByEntityKey[taskEntityKey]?.unreadAt;
-            const expectedUnreadAt = cachedUnreadAt ?? taskMeta.unreadAt;
-            setTaskQueryCacheUnreadOverlay(targetTask, undefined);
-            if (baseServices) {
-              void baseServices.zcodeTaskService
-                .setTaskUnread({
-                  ...targetTask,
-                  unread: false,
-                  expectedUnreadAt,
-                })
-                .then((meta) => {
-                  reconcileTaskQueryCacheUnread(targetTask, meta.unreadAt);
-                  bumpTaskListMembershipVersion();
-                })
-                .catch((error: unknown) => {
-                  rollbackTaskQueryCacheUnread(targetTask, expectedUnreadAt);
-                  logger.warn(
-                    `[Root] 通知点击清除未读状态失败 taskId=${taskId}:`,
-                    error instanceof Error ? error.message : String(error),
-                  );
-                });
-            }
-          }
           useZCodeSessionStore
             .getState()
             .setActiveTaskId(targetWorkspacePath, taskId, targetWorkspaceIdentity);
@@ -323,7 +289,7 @@ export function useRootPlatformEffects({
       disposeNotificationClick();
       disposeUpdateCheckResult();
     };
-  }, [activeWorkspaceIdentity, activeWorkspacePath, baseServices, platform, tabs]);
+  }, [activeWorkspaceIdentity, activeWorkspacePath, platform, tabs]);
 
   useEffect(() => {
     const pending = pendingShareImportRef.current;
@@ -546,6 +512,44 @@ export function useRootPlatformEffects({
       .map((tab) => tab.workspacePath);
     platform.syncWindowTabs(paths);
   }, [hasCompletedFullTabRestore, isDesktop, platform, tabs]);
+
+  useEffect(() => {
+    if (
+      !isDesktop ||
+      !shouldPublishCompleteWorkspaceSnapshot(hasCompletedFullTabRestore) ||
+      !platform.syncWebRemoteControlWorkspaces
+    ) {
+      return;
+    }
+
+    const connectedRemoteWorkspaces = buildConnectedRemoteWorkspaceSessionTargets({ tabs });
+    if (connectedRemoteWorkspaces.length > 0) {
+      // Bugfix: Bot 远端连接状态查询依赖 main 进程里 remoteSessionId -> workspaceIdentity 的绑定。
+      // 之前这条绑定复用 Web 远控 workspace 同步，Web 远控未开启时不会执行，导致 UI 已连接但 Bot 误判未连接。
+      platform.syncWebRemoteControlWorkspaces(connectedRemoteWorkspaces);
+    }
+
+    if (!webRemoteControlFeatureEnabled || !webRemoteControlSessionActive) {
+      return;
+    }
+
+    const workspaces = buildWebRemoteControlWorkspaceTargets({
+      tabs,
+      reconnectingRemoteWorkspaceKeys,
+      remoteWorkspaceErrorByWorkspaceKey,
+    });
+
+    platform.syncWebRemoteControlWorkspaces(workspaces);
+  }, [
+    hasCompletedFullTabRestore,
+    isDesktop,
+    platform,
+    reconnectingRemoteWorkspaceKeys,
+    remoteWorkspaceErrorByWorkspaceKey,
+    tabs,
+    webRemoteControlFeatureEnabled,
+    webRemoteControlSessionActive,
+  ]);
 
   useEffect(() => {
     if (isDesktop) {

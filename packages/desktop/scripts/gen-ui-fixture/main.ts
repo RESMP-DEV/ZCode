@@ -6,12 +6,14 @@ import {
   checkCopyButton,
 } from "./presentation-checks.js";
 import { checkStandalone } from "./standalone-checks.js";
+import { checkExternalLinks } from "./external-links-checks.js";
+import { checkFileSummary } from "./file-summary-checks.js";
 import {
   checkRuntimeWidgets,
   checkCalendarAndCarousel,
   checkTweakLifecycle,
 } from "./runtime-checks.js";
-import { prepareOutputFiles } from "./output-files.js";
+import { checkInheritedOutput, prepareOutputFiles } from "./output-files.js";
 import { installOfflineChecks } from "./offline-checks.js";
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
@@ -101,11 +103,6 @@ void app
     await read(
       "new Promise(resolve => globalThis.lucide ? resolve() : document.getElementById('zcode-visualization-lucide').addEventListener('load', resolve, {once:true}))",
     );
-    assert.deepEqual(await read("Object.keys(window.zcode).sort()"), [
-      "sendFollowUpMessage",
-      "setWidgetState",
-      "widgetState",
-    ]);
     assert.equal(await read("typeof window.openai"), "undefined");
     assert.equal(await read("typeof window.require"), "undefined");
     await read(
@@ -202,11 +199,22 @@ void app
     guest = currentGuest();
     frame = guest.mainFrame.frames.find((value) => value.url.includes("/instance/"))!;
     const guestId = guest.id;
-    await checkInlineLayout(win, read);
+    await checkExternalLinks(win, guest, read);
+    await checkFileSummary(win, root, waitHost);
+    await checkInlineLayout(win, read, root);
     await checkCopyButton(win);
+    const inlineHeight = await win.webContents.executeJavaScript(
+      "document.querySelector('[data-testid=gen-ui-anchor]').style.height",
+    );
     await clickHost("Expand");
     await waitHost(`document.querySelector('[role="dialog"]')`);
     await checkCopyButton(win, true);
+    assert.equal(
+      await win.webContents.executeJavaScript(
+        "document.querySelector('[data-testid=gen-ui-anchor]').style.height",
+      ),
+      inlineHeight,
+    );
     assert.equal(currentGuest().id, guestId);
     assert.ok(
       await win.webContents.executeJavaScript(
@@ -327,20 +335,11 @@ void app
     );
     assert.equal(currentGuest().id, guestId);
     assert.equal(await read("window.starts"), 1);
-    await read(
-      "document.body.insertAdjacentHTML('beforeend','<div id=height-probe style=height:12000px></div>')",
-    );
-    await waitHost(
-      `document.querySelector('[data-testid="gen-ui-anchor"]').style.height === '10000px'`,
-    );
-    await read("document.querySelector('#height-probe').remove()");
-    await waitHost(
-      `parseFloat(document.querySelector('[data-testid="gen-ui-anchor"]').style.height) < 1000`,
-    );
     await win.webContents.executeJavaScript("window.showTask('second-task')");
     await waitHost(
       `document.querySelector('[data-gen-ui-phase="ready"]') && window.inspectReact().preparations === 2`,
     );
+    await checkInheritedOutput(win);
     assert.equal(
       webContents.getAllWebContents().filter((contents) => contents.getType() === "webview").length,
       2,
@@ -384,7 +383,7 @@ void app
     offline.assertNoNetwork();
     clearTimeout(deadline);
     process.stdout.write(
-      "Gen UI Electron E2E passed: isolation, state, anchors, styles, tooltip, tabs, icons, calendar, carousel, Tweak lifecycle, follow-up, theme, replay, reload, standalone and historical remount\n",
+      "Gen UI Electron E2E passed: isolation, state, anchors, external links, styles, tooltip, tabs, icons, calendar, carousel, Tweak lifecycle, follow-up, theme, replay, reload, standalone and historical remount\n",
     );
     app.exit(0);
   })

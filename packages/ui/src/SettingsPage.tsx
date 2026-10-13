@@ -1,5 +1,11 @@
 /* oxlint-disable eslint(max-lines) */
 import { ArrowLeft, Rocket, type LucideIcon } from "lucide-react";
+import { useStore } from "zustand";
+import {
+  marketingNavigation,
+  finishMarketingNavigation,
+  marketingSettingsSections,
+} from "@/lib/marketingNavigation.js";
 import {
   useCallback,
   useEffect,
@@ -10,6 +16,7 @@ import {
 } from "react";
 import type {
   AppSettings,
+  DesktopCloseToTrayCapability,
   IntegratedTerminalShellOption,
   IntegratedTerminalShellSelection,
   Locale,
@@ -27,8 +34,6 @@ import {
 } from "@zcode/shared";
 import { Button } from "@/components/ui/button.js";
 import { toast } from "@/components/ui/toast.js";
-import { runWorkspaceAutoImportScan } from "@/hooks/useWorkspaceAutoImport.js";
-import { useTabStoreApi } from "@/store/TabStoreProvider.js";
 import { DesktopWindowFrame } from "@/DesktopWindowFrame.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
@@ -273,6 +278,7 @@ export function SettingsPage({
   isDesktop,
   isWindowsDesktop,
   isMacDesktop,
+  isWebRemoteControl = false,
   windowsWindowControlsRightPaddingPx: _windowsWindowControlsRightPaddingPx,
   captionWorkspacePath,
   onBack,
@@ -286,6 +292,7 @@ export function SettingsPage({
   isDesktop?: boolean;
   isWindowsDesktop?: boolean;
   isMacDesktop?: boolean;
+  isWebRemoteControl?: boolean;
   windowsWindowControlsRightPaddingPx?: number;
   captionWorkspacePath?: string | null;
   onBack?: () => void;
@@ -297,7 +304,6 @@ export function SettingsPage({
   user?: UserInfo | null;
 }) {
   const { intl, localePreference, setLocalePreference } = useZCodeIntl();
-  const tabStoreApi = useTabStoreApi();
   const { settingsSectionGroups, settingsSections } = useMemo(
     () =>
       createSettingsPageConfig({
@@ -322,6 +328,49 @@ export function SettingsPage({
     return visibleInitialSection;
   });
   const [pluginTab, setPluginTab] = useState(() => consumePendingSettingsPluginTab());
+  // Linux 关闭驻留托盘能力查询（spec：docs/desktop/linux-close-to-tray.md）：打开设置页时
+  // 经 platform IPC 触发 main 侧探测（带 stale 缓存），用户装完 AppIndicator 扩展重开
+  // 设置页即可解除置灰；Web/远控无桥不查询。
+  const [linuxCloseToTrayCapability, setLinuxCloseToTrayCapability] =
+    useState<DesktopCloseToTrayCapability | null>(null);
+  useEffect(() => {
+    if (!isLinuxDesktop) {
+      return;
+    }
+    let cancelled = false;
+    platform
+      .getCloseToTrayCapability?.()
+      .then((capability) => {
+        if (!cancelled) {
+          setLinuxCloseToTrayCapability(capability);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isLinuxDesktop, platform]);
+  const linuxCloseToTray = isLinuxDesktop
+    ? {
+        // 探测中按不可用锁定，防止查询完成前误开导致关窗失联
+        disabled: linuxCloseToTrayCapability === null || !linuxCloseToTrayCapability.supported,
+        unavailable: linuxCloseToTrayCapability?.supported === false,
+        gnomeLikeHint:
+          linuxCloseToTrayCapability?.supported === false &&
+          linuxCloseToTrayCapability.gnomeLikeWithoutTray,
+      }
+    : undefined;
+  const marketingRequest = useStore(marketingNavigation, (state) => state.request);
+  useEffect(() => {
+    if (marketingRequest?.target.page !== "settings") return;
+    const target = marketingRequest.target;
+    const section = target.section ? marketingSettingsSections[target.section] : activeSection;
+    if (!settingsSections.some((item) => item.id === section)) {
+      finishMarketingNavigation(marketingRequest.id, new Error("marketing_navigation_unavailable"));
+    } else if (activeSection === section && !target.provider_id) {
+      finishMarketingNavigation(marketingRequest.id);
+    }
+  }, [activeSection, marketingRequest, settingsSections]);
   const [pluginNavigationOrigin, setPluginNavigationOrigin] = useState(() =>
     consumePendingSettingsPluginOrigin(),
   );
@@ -701,9 +750,7 @@ export function SettingsPage({
     useState(false);
   const [taskAutoArchiveEnabled, setTaskAutoArchiveEnabled] = useState(false);
   const [taskAutoArchiveOlderThanDays, setTaskAutoArchiveOlderThanDays] = useState(7);
-  const [workspaceAutoImportEnabled, setWorkspaceAutoImportEnabled] = useState(true);
-  const [workspaceAutoImportRoots, setWorkspaceAutoImportRoots] = useState<string[]>([]);
-  const [closeToTrayOnWindows, setCloseToTrayOnWindows] = useState(true);
+  const [closeToTrayOnWindows, setCloseToTrayOnWindows] = useState(Boolean(isWindowsDesktop));
   const [
     desktopChromiumHardwareAccelerationEnabled,
     setDesktopChromiumHardwareAccelerationEnabled,
@@ -786,11 +833,9 @@ export function SettingsPage({
         setEmbeddedBrowserAllowInsecureCertificates(
           settings.embeddedBrowserAllowInsecureCertificates ?? false,
         );
-        setTaskAutoArchiveEnabled(settings.taskAutoArchiveEnabled ?? true);
-        setTaskAutoArchiveOlderThanDays(settings.taskAutoArchiveOlderThanDays ?? 3);
-        setWorkspaceAutoImportEnabled(settings.workspaceAutoImportEnabled ?? true);
-        setWorkspaceAutoImportRoots(settings.workspaceAutoImportRoots ?? []);
-        setCloseToTrayOnWindows(settings.closeToTrayOnWindows ?? true);
+        setTaskAutoArchiveEnabled(settings.taskAutoArchiveEnabled ?? false);
+        setTaskAutoArchiveOlderThanDays(settings.taskAutoArchiveOlderThanDays ?? 7);
+        setCloseToTrayOnWindows(settings.closeToTrayOnWindows ?? Boolean(isWindowsDesktop));
         setDesktopChromiumHardwareAccelerationEnabled(
           settings.desktopChromiumHardwareAccelerationEnabled ?? true,
         );
@@ -823,7 +868,7 @@ export function SettingsPage({
           });
       })
       .catch(() => {});
-  }, [localHostServices.systemService, services.settingService]);
+  }, [localHostServices.systemService, services.settingService, isWindowsDesktop]);
 
   useEffect(() => {
     if (!sharedSettings) {
@@ -1066,59 +1111,6 @@ export function SettingsPage({
     },
     [services.settingService],
   );
-  const handleWorkspaceAutoImportEnabledChange = useCallback(
-    async (enabled: boolean) => {
-      await runSettingsActionAsync({
-        featureId: "settings.navigation",
-        action: "toggle_workspace_auto_import",
-        trigger: "switch",
-        operation: () => services.settingService.update({ workspaceAutoImportEnabled: enabled }),
-        completed: {
-          resultSource: "setting_service",
-          stateAfter: enabled ? "enabled" : "disabled",
-        },
-      });
-      setWorkspaceAutoImportEnabled(enabled);
-    },
-    [services.settingService],
-  );
-  const handleWorkspaceAutoImportRootsChange = useCallback(
-    async (roots: string[]) => {
-      await runSettingsActionAsync({
-        featureId: "settings.navigation",
-        action: "change_workspace_auto_import_roots",
-        trigger: "keyboard",
-        operation: () => services.settingService.update({ workspaceAutoImportRoots: roots }),
-        completed: { resultSource: "setting_service", valueAfter: String(roots.length) },
-      });
-      setWorkspaceAutoImportRoots(roots);
-    },
-    [services.settingService],
-  );
-  const handleRunWorkspaceAutoImportScan = useCallback(async () => {
-    try {
-      const result = await runWorkspaceAutoImportScan(
-        // 扫描的是本地磁盘并写入本地侧栏；远端 workspace 激活时 useServices()
-        // 会解析到远端 host，必须固定用本地 host services，否则远端路径会
-        // 被当成普通本地路径 ensure 成 tab。
-        { settingService: localHostServices.settingService, fileService: localHostServices.fileService },
-        tabStoreApi,
-      );
-      toast(
-        intl.formatMessage(
-          { id: "settings.workspaceAutoImportScanResult" },
-          { imported: String(result.imported), scanned: String(result.scanned) },
-        ),
-      );
-    } catch (error) {
-      toast(
-        intl.formatMessage(
-          { id: "settings.workspaceAutoImportScanFailed" },
-          { error: error instanceof Error ? error.message : String(error) },
-        ),
-      );
-    }
-  }, [intl, localHostServices.fileService, localHostServices.settingService, tabStoreApi]);
   const handleCloseToTrayOnWindowsChange = useCallback(
     async (enabled: boolean) => {
       await runSettingsActionAsync({
@@ -1438,7 +1430,7 @@ export function SettingsPage({
 
           {usesInlineWindowControls ? (
             <div className="absolute right-1 top-1 z-30 mt-px mr-px flex h-12 items-center gap-0.5 px-2 pointer-events-auto [app-region:no-drag]">
-              {/* Windows/Linux 设置页仍保留旧 caption 下箭头，与主界面和 macOS 的帮助入口不一致。
+              {/* Bug 原因：Windows/Linux 设置页仍保留旧 caption 下箭头，与主界面和 macOS 的帮助入口不一致。
                   统一复用问号帮助按钮，并让它在普通 flex 流中紧邻自绘窗控。
                   Settings 的独立标题层还需计入 4px 外层留白和 1px 边框，才能与 Workspace 控制组对齐。 */}
               <WorkspaceHelpMenuButton isDesktop={Boolean(isDesktop)} />
@@ -1718,6 +1710,8 @@ export function SettingsPage({
                             setInterfaceMode={setInterfaceMode}
                             isDesktop={isDesktop}
                             isWindowsDesktop={isWindowsDesktop}
+                            isLinuxDesktop={isLinuxDesktop}
+                            linuxCloseToTray={linuxCloseToTray}
                             platform={platform}
                             notificationEnabled={notificationEnabled}
                             notificationSoundEnabled={notificationSoundEnabled}
@@ -1772,13 +1766,6 @@ export function SettingsPage({
                             }
                             taskAutoArchiveEnabled={taskAutoArchiveEnabled}
                             taskAutoArchiveOlderThanDays={taskAutoArchiveOlderThanDays}
-                            workspaceAutoImportEnabled={workspaceAutoImportEnabled}
-                            workspaceAutoImportRoots={workspaceAutoImportRoots}
-                            onWorkspaceAutoImportEnabledChange={
-                              handleWorkspaceAutoImportEnabledChange
-                            }
-                            onWorkspaceAutoImportRootsChange={handleWorkspaceAutoImportRootsChange}
-                            onRunWorkspaceAutoImportScan={handleRunWorkspaceAutoImportScan}
                             messageStreamShowReasoning={messageStreamShowReasoning}
                             messageStreamShowTodos={messageStreamShowTodos}
                             toolGroupingExploreEnabled={toolGroupingExploreEnabled}
@@ -1905,6 +1892,7 @@ export function SettingsPage({
                             isDesktop={Boolean(isDesktop)}
                             isMacDesktop={Boolean(isMacDesktop)}
                             isWindowsDesktop={Boolean(isWindowsDesktop)}
+                            isWebRemoteControl={isWebRemoteControl}
                             initialTab={pluginTab}
                             initialScopeKey={pluginScopeKey}
                             workspacePath={activeWorkspacePath}
@@ -1921,6 +1909,7 @@ export function SettingsPage({
                           <PluginsSection
                             key={`mcp:${settingsSectionNavigationVersion}`}
                             mode="mcp"
+                            isWebRemoteControl={isWebRemoteControl}
                             workspacePath={activeWorkspacePath}
                             workspaceIdentity={activeWorkspaceIdentity}
                             onCreateTask={onCreateTask}
@@ -1934,6 +1923,7 @@ export function SettingsPage({
                           <PluginsSection
                             key={`skill:${settingsSectionNavigationVersion}`}
                             mode="skill"
+                            isWebRemoteControl={isWebRemoteControl}
                             workspacePath={activeWorkspacePath}
                             workspaceIdentity={activeWorkspaceIdentity}
                             onCreateTask={onCreateTask}
@@ -1971,6 +1961,7 @@ export function SettingsPage({
                         ) : activeSection === "commands" ? (
                           <PluginsSection
                             mode="command"
+                            isWebRemoteControl={isWebRemoteControl}
                             workspacePath={activeWorkspacePath}
                             workspaceIdentity={activeWorkspaceIdentity}
                             onCreateTask={onCreateTask}

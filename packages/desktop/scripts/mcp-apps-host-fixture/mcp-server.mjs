@@ -83,6 +83,25 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
       break;
     case "resources/read": {
       sendEvent({ type: "read", uri: params.uri });
+      const resources = {
+        "fixture://document.pdf": {
+          mimeType: "application/pdf",
+          blob: Buffer.from("%PDF-1.7\n%%EOF\n").toString("base64"),
+        },
+        "fixture://vector.svg": {
+          mimeType: "image/svg+xml",
+          text: '<svg xmlns="http://www.w3.org/2000/svg"/>',
+        },
+        "fixture://unsupported.bin": { mimeType: "application/x-msdownload", blob: "YQ==" },
+      };
+      if (resources[params.uri]) {
+        respond(id, {
+          contents: [
+            { uri: params.uri, ...resources[params.uri], _meta: { private: "server-only" } },
+          ],
+        });
+        break;
+      }
       respond(id, {
         contents: [
           {

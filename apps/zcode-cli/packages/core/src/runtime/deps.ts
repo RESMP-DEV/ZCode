@@ -117,6 +117,7 @@ export type {
   AutomationPort,
   OffPeakPort,
   SessionSweepPort,
+  TopicResourcePort,
   BackgroundExecutionSnapshot,
   BackgroundTaskCancelResult,
   BackgroundTaskInfo,
