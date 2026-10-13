@@ -674,6 +674,7 @@ function RootInner({
     handleResolveConversationWorkspace,
     handleEnsureConversationWorkspace,
     handleCreateConversationTask,
+    handleCreateAttentionDigest,
     handleOpenWorkspace,
     handleOpenFolderFromWorkspaceMenu,
     handleCreateScratchWorkspace,
@@ -1283,6 +1284,7 @@ function RootInner({
             handleReconnectRemoteWorkspace={handleReconnectRemoteWorkspace}
             handleCreateTask={handleCreateTask}
             handleCreateConversationTask={handleCreateConversationTask}
+            handleCreateAttentionDigest={handleCreateAttentionDigest}
             handleResolveConversationWorkspace={handleResolveConversationWorkspace}
             handleOpenWorkspace={handleOpenWorkspace}
             handleOpenFolderFromWorkspaceMenu={handleOpenFolderFromWorkspaceMenu}

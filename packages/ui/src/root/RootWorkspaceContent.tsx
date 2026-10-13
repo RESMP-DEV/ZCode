@@ -25,6 +25,7 @@ interface RootWorkspaceContentProps {
   handleReconnectRemoteWorkspace: AppProps["onReconnectRemoteWorkspace"];
   handleCreateTask: AppProps["onCreateTask"];
   handleCreateConversationTask: NonNullable<AppProps["onCreateConversationTask"]>;
+  handleCreateAttentionDigest: NonNullable<AppProps["onCreateAttentionDigest"]>;
   handleResolveConversationWorkspace: NonNullable<AppProps["onResolveConversationWorkspace"]>;
   handleOpenWorkspace: AppProps["onOpenWorkspace"];
   handleOpenFolderFromWorkspaceMenu: AppProps["onOpenFolderFromWorkspaceMenu"];
@@ -165,6 +166,7 @@ export function RootWorkspaceContent({
               workspaceIdentity={workspaceIdentity}
               onCreateTask={handleCreateTask}
               onCreateConversationTask={handleCreateConversationTask}
+              onCreateAttentionDigest={handleCreateAttentionDigest}
               onResolveConversationWorkspace={handleResolveConversationWorkspace}
               onOpenWorkspace={handleOpenWorkspace}
               onOpenFolderFromWorkspaceMenu={handleOpenFolderFromWorkspaceMenu}

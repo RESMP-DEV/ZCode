@@ -317,6 +317,7 @@ export const WorkspaceShellLayout = memo(
     reconnectingRemoteWorkspaceLogsByWorkspaceKey = EMPTY_RECONNECTING_REMOTE_WORKSPACE_LOGS_BY_WORKSPACE_KEY,
     onCreateTask,
     onCreateConversationTask,
+    onCreateAttentionDigest,
     onResolveConversationWorkspace,
     onOpenWorkspace,
     onOpenFolderFromWorkspaceMenu,
@@ -2419,6 +2420,7 @@ export const WorkspaceShellLayout = memo(
                     onCreateConversationTask={
                       onCreateConversationTask ?? handleCreateTaskInChat
                     }
+                    onCreateAttentionDigest={onCreateAttentionDigest}
                     onOpenFolderFromWorkspaceMenu={
                       onOpenFolderFromWorkspaceMenu
                     }

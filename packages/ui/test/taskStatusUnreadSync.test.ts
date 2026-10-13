@@ -146,6 +146,55 @@ describe("task status unread sync", () => {
     expect(useTaskQueryCacheStore.getState().taskUnreadOverlayByEntityKey).toEqual({});
   });
 
+  it("clears unread state when a task is archived", () => {
+    const task = createTaskMeta({ status: "completed", unreadAt: 123 });
+    const service = createService();
+    const store = useZCodeSessionStore.getState();
+    seedQueryTask(task);
+    store.setActiveTaskId("/repo/demo", "other-task");
+    store.setTaskUnreadIndicator("/repo/demo", task.taskId, true);
+
+    syncStatusEvent({
+      event: {
+        ...createStatusEvent(task),
+        reason: "task_archived",
+        unreadSignal: undefined,
+      },
+      service,
+    });
+
+    expect(service.setTaskUnread).not.toHaveBeenCalled();
+    expect(getQueryTask(task)?.unreadAt).toBeUndefined();
+    expect(
+      getTaskUnreadIndicator(useZCodeSessionStore.getState().getWorkspaceState("/repo/demo"), task.taskId),
+    ).toBe(false);
+  });
+
+  it("rolls back optimistic unread when persistence returns no unreadAt", async () => {
+    const task = createTaskMeta({ status: "completed" });
+    const service = createService();
+    service.setTaskUnread.mockResolvedValueOnce(createTaskMeta({ taskId: task.taskId }));
+    const store = useZCodeSessionStore.getState();
+    seedQueryTask(task);
+    store.setActiveTaskId("/repo/demo", "other-task");
+
+    syncStatusEvent({
+      event: createStatusEvent(task),
+      service,
+    });
+
+    await vi.waitFor(() => {
+      expect(getQueryTask(task)?.unreadAt).toBeUndefined();
+      expect(
+        getTaskUnreadIndicator(
+          useZCodeSessionStore.getState().getWorkspaceState("/repo/demo"),
+          task.taskId,
+        ),
+      ).toBe(false);
+    });
+    expect(useTaskQueryCacheStore.getState().taskUnreadOverlayByEntityKey).toEqual({});
+  });
+
   it("keeps the unread overlay when an older membership result arrives in flight", async () => {
     const task = createTaskMeta({ status: "completed" });
     let resolvePersistence!: (taskMeta: ZCodeTaskMeta) => void;
