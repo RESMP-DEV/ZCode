@@ -2515,8 +2515,13 @@ async function runPromptTurnInBackground(
         browserAmbientContext: params.browserAmbientContext,
         inputId: params.inputId,
         queryId: params.queryId,
-        ...(params.automationId
-          ? { automationId: params.automationId }
+        // 归因必须用 resolvePromptTurnAutomationId 解析出的 id（与 v4 prompt-turn 一致）：
+        // cron 派发常漏传显式 automationId，只有 inputId 保留 automation-* runId。
+        // 若只透传原始 params.automationId，本轮会带 automation- 前缀 queryId 进入
+        // core（automationTurn=true）却没有 currentTurnAutomationId，CronDelete
+        // 自清理被永久拒绝。
+        ...(activeAutomationId
+          ? { automationId: activeAutomationId }
           : params.offPeakTaskId
             ? {
                 offPeakTaskId: params.offPeakTaskId,
