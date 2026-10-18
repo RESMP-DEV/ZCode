@@ -108,6 +108,21 @@ export { createCredentialService } from "./credential/credentialService.js";
 export { createBroadcastService } from "./broadcast/broadcastService.js";
 export { createZCodeAgentService } from "./zcode-agent/zcodeAgentService.js";
 export { createZCodeTaskServiceAdapter } from "./zcode-agent/zcodeTaskServiceAdapter.js";
+export {
+  dispatchAutomationRun,
+  dispatchManualAutomationRun,
+  recordCronRunOutcomeBestEffort,
+  releaseManualClaimBestEffort,
+  settleCronRunTerminalOutcome,
+  settleManualDispatchFailureBestEffort,
+  startManualClaimHeartbeat,
+  resolveAutomationSubmissionModelSelection,
+  type AutomationDispatchDeps,
+  type AutomationDispatchRepo,
+  type AutomationDispatchRequest,
+  type AutomationDispatchResult,
+  type CronRunLifecycleIdentity,
+} from "./zcode-agent/automationDispatch.js";
 export { createZCodeSessionService } from "./zcode-session/zcodeSessionService.js";
 export {
   resolveDefaultZCodeAgentCommand,
@@ -275,6 +290,8 @@ export {
   computeRetryAt,
 } from "./session/automationRepo.js";
 export { AutomationService, InvalidCronExprError } from "./session/automationService.js";
+// 系统级调度（detached cron）的配置仓库与 runner 管理面；scheduler/host/CLI 共用。
+export { AutomationConfigRepo } from "./session/automationConfigRepo.js";
 // 闲时任务与 automation 同库不同表；类型/常量全独立。
 export { OffPeakTaskRepo, OFF_PEAK_CLAIM_STALE_MS } from "./session/offPeakTaskRepo.js";
 // host 域终态回填 files_changed 复用现有 task diff 汇总。

@@ -12,6 +12,11 @@ import {
 } from "@zcode/shared";
 import { requestPluginReferenceCatalog } from "#src/zcode-agent/pluginReferenceCatalogRequest.js";
 import {
+  disableSystemScheduling,
+  enableSystemScheduling,
+  getAutomationSchedulingStatus,
+} from "../automation-runner/index.js";
+import {
   localTtftFactsSchema,
   sessionDebugSnapshotSchema,
   type LocalTtftFacts,
@@ -2799,6 +2804,8 @@ export function createZCodeAgentService(
           }
           void (async () => {
             try {
+              // 会话绑定（targetTaskId）已退役（specs/automation-system-scheduling.md）：
+              // 旧 CLI 仍可能发送该字段，host 一律忽略，派发永远新建 fresh session。
               const automation = await automationService.create({
                 title: parsed.data.title ?? "",
                 cronExpr: parsed.data.cronExpr,
@@ -2809,32 +2816,12 @@ export function createZCodeAgentService(
                 prompt: parsed.data.prompt,
                 modelSelection: parsed.data.modelSelection,
                 mode: parsed.data.mode,
-                targetTaskId: parsed.data.targetTaskId,
                 botDeliveryTarget: parsed.data.botDeliveryTarget,
                 workspacePath: workspace.workspacePath,
                 workspaceIdentity: workspace.workspaceIdentity,
                 recurring: parsed.data.recurring ?? true,
                 maxRuns: parsed.data.maxRuns,
               });
-              if (automation.targetTaskId) {
-                const taskMeta = await automationTaskIndexRepo
-                  .getTaskMeta({
-                    workspacePath: automation.workspacePath,
-                    workspaceIdentity: automation.workspaceIdentity,
-                    taskId: automation.targetTaskId,
-                  })
-                  .catch(() => null);
-                if (taskMeta) {
-                  await automationTaskIndexRepo.syncTaskMeta({
-                    meta: {
-                      ...taskMeta,
-                      // 会话内创建的 automation 复用当前 session；显式写入标记供 V4 侧栏展示。
-                      cronAutomationId: automation.automationId,
-                      updatedAt: Math.max(taskMeta.updatedAt, Date.now()),
-                    },
-                  });
-                }
-              }
               await client.respond(request.id, {
                 automation: toProtocolAutomation(automation),
               });
@@ -5200,6 +5187,22 @@ export function createZCodeAgentService(
         workspacePath: params.workspacePath,
         workspaceIdentity: params.workspaceIdentity,
       });
+    },
+
+    // 系统级调度（specs/automation-system-scheduling.md）：注册/心跳的事实源在
+    // tasks-index automation_config；enable 会安装 OS 注册（launchd/systemd/schtasks），
+    // 属显式用户动作触发的系统状态变更。
+    async getAutomationSchedulingStatus() {
+      return getAutomationSchedulingStatus();
+    },
+
+    async setAutomationSchedulingEnabled(params: { enabled: boolean }) {
+      if (params.enabled) {
+        await enableSystemScheduling();
+      } else {
+        await disableSystemScheduling();
+      }
+      return getAutomationSchedulingStatus();
     },
 
     async generateWorkspaceText(params: ZCodeAgentGenerateWorkspaceTextParams) {
