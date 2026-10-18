@@ -1,6 +1,6 @@
 # Automation 系统级调度（detached cron：OS 拥有时机，runner 拥有执行）
 
-状态：spec 已评审待实现（2026-10-18，方案 A）。执行轮语义全文沿用 `specs/automation-turn-self-cleanup.md`；修订 `specs/session-sweeper.md` 的 cron 保护判定（见「生命周期规则」第 6 条）。
+状态：已实现（2026-10-18，PR #13）。root typecheck/lint/architecture 全绿；services automation 家族 + sweep + startup 148/148、bootstrap port/denylist 28/28、cli 3/3；automation-runner bundle 构建并通过脱离 app 的实机 smoke（temp DB：迁移、双模式 tick、status 漂移诊断）。执行轮语义全文沿用 `specs/automation-turn-self-cleanup.md`；修订 `specs/session-sweeper.md` 的 cron 保护判定（见「生命周期规则」第 6 条）。未验证面：打包 Preview 关闭 app 的真实触发（需快照重建 + 用户确认重启）、真实 OS 注册安装（留给用户显式 enable）。
 
 ## 背景与问题
 
