@@ -295,6 +295,7 @@ export function createDefaultSubagentPort(
           dynamicWorkflowToolsOnDemand:
             this.config.dynamicWorkflowToolsOnDemand === true &&
             !this.dynamicWorkflowToolsActivated,
+          hostToolCapabilities: this.config.hostToolCapabilities,
           // 修复原因：默认 subagent 已从 Explore 调整为 general-purpose。
           // toolset 不能再依赖 DEFAULT_SUBAGENT_TYPE，否则默认通用 agent 会被误降级为只读搜索工具面。
           toolset: builtInExplore ? "explore" : "main",

@@ -213,6 +213,8 @@ interface RegisterBuiltInToolsOptions {
   /** browser-use 说明和 agent.browsers 注入由官方 browser-use 插件 + 宿主 browser bridge 共同启用。 */
   includeBrowserUse?: boolean;
   embeddedSearchEnabled?: boolean;
+  /** Trusted, host-resolved capability keys. Absence is fail-closed for gated tools. */
+  availableCapabilities?: readonly string[];
   allowedTools?: readonly string[];
   disallowedTools?: readonly string[];
   silentDuplicateWarnings?: boolean;
@@ -226,6 +228,9 @@ export function registerBuiltInTools(
 ): void {
   const allowedTools = options.allowedTools ? new Set(options.allowedTools) : undefined;
   const disallowedTools = createToolRuleNameSet(options.disallowedTools);
+  const availableCapabilities = options.availableCapabilities
+    ? new Set(options.availableCapabilities)
+    : undefined;
 
   for (const entry of builtInTools) {
     if (
@@ -238,6 +243,13 @@ export function registerBuiltInTools(
       continue;
     }
     if (disallowedTools?.has(entry.metadata.name)) {
+      continue;
+    }
+    if (
+      entry.requiredCapabilities?.some(
+        (capability) => availableCapabilities?.has(capability) !== true,
+      )
+    ) {
       continue;
     }
     if (isSubagentDispatchToolName(entry.metadata.name) && options.includeAgent !== true) {

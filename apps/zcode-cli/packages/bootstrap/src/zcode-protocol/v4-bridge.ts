@@ -1237,6 +1237,7 @@ export function createConversationV4Gateway(
       offPeakToolEnabled,
       dynamicWorkflowEnabled,
       dynamicWorkflowMode,
+      hostToolCapabilities,
       permissionScope,
     }) => {
       if (permissionScope && !context.deps.sessionStore)
@@ -1267,6 +1268,7 @@ export function createConversationV4Gateway(
         ...(dynamicWorkflowEnabled === true && dynamicWorkflowMode !== undefined
           ? { dynamicWorkflowMode }
           : {}),
+        hostToolCapabilities,
       });
       if (permissionScope) {
         const record = context.sessions.get(created.sessionId);

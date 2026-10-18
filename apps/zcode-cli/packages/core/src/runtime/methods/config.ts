@@ -30,6 +30,7 @@ import { applyRuntimeExecutionState } from "../execution-state.js";
 import { mirrorSubagentInteractionEvent } from "../../subagent/tool-event-mirror.js";
 import { orderProviderVisibleToolContracts } from "../../tool/provider-visible-order.js";
 import { projectToolModelContract } from "../../tool/model-contract.js";
+import { isZaiMeteredWebToolName, isZaiWebToolingBlocked } from "../../tool/zai-web-tool-quota-gate.js";
 import { rebuildContextPrefix } from "./context-refresh.js";
 import { filterEmbeddedSearchRuntimeVisibleTools } from "./embedded-search-branch.js";
 import {
@@ -140,6 +141,12 @@ export function getTools(this: AgentRuntimeInternal, model?: Model): ModelToolCo
   }
   return this.cachedTools
     .filter((tool) => tool.name !== "WebSearch" || shouldExposeWebSearch.call(this, model))
+    // Z.AI 工具额度耗尽闩锁（specs/zai-web-tool-quota-gate.md）：额度是账户级计量，
+    // 观察到 1310 429 后三个计费 Web 工具一起移出 provider 可见 schema；model 缺席的
+    // 枚举调用保持完整，与上面 shouldExposeWebSearch 的「无 model 即完整注册表」同约定。
+    .filter(
+      (tool) => !model || !isZaiWebToolingBlocked() || !isZaiMeteredWebToolName(tool.name),
+    )
     .map((tool) =>
       projectToolModelContract(tool, this.registry.get(tool.name), {
         model,

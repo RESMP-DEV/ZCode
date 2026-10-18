@@ -38,6 +38,11 @@ import {
 } from "./hook-flow.js";
 import { resolveToolCallCapabilityFlags } from "./permission-capability.js";
 import { resolveToolPermission } from "./permission-flow.js";
+import {
+  isZaiMeteredWebToolName,
+  observeZaiToolQuotaExhaustion,
+  zaiQuotaProbeTextFromModelContent,
+} from "../zai-web-tool-quota-gate.js";
 import { snapshotPermissionInput } from "./permission-input.js";
 import { buildToolInputResolutionContext } from "./permission-input-adjustments.js";
 import { createMcpToolDisplay, createToolResultDisplay } from "./result-display.js";
@@ -560,6 +565,14 @@ async function executeToolCallImpl(
         { entry },
       );
 
+      // Z.AI 工具额度闩锁的成功路径观察（specs/zai-web-tool-quota-gate.md）：官方 MCP 的
+      // 配额 429 以**正常 tool result 内容**返回、不抛异常（实测 webReader 429-1310 即
+      // 如此渲染为 "MCP error -429: {...}" 文本）。只对计费 Web 工具名探测，不给每个
+      // 大结果都跑签名正则。
+      if (isZaiMeteredWebToolName(canonicalToolCall.name)) {
+        observeZaiToolQuotaExhaustion(zaiQuotaProbeTextFromModelContent(finalModelContent));
+      }
+
       await emitToolCallResult(
         deps,
         canonicalToolCall,
@@ -622,6 +635,12 @@ async function executeToolCallImpl(
           formatHookAdditionalContexts(preToolHookResult.additionalContexts),
         ].join("\n\n");
       }
+      // Z.AI 工具额度闩锁的失败路径观察：WebFetch / WebSearch / MCP thrown error 形态的
+      // 429-1310 都收口在这里；识别后进程内闩上，getTools 随即把三个计费 Web 工具移出
+      // provider 可见 schema（specs/zai-web-tool-quota-gate.md）。
+      observeZaiToolQuotaExhaustion(
+        `${result.error?.message ?? ""}\n${baseModelContent ?? ""}`,
+      );
       result = withAutomationCreateLimitTurnStop(result, {
         error,
         toolName: canonicalToolCall.name,

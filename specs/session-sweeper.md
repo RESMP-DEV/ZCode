@@ -4,6 +4,7 @@
 
 ## 产品规则
 
+- Host 能力必须在 runtime 工具目录构建前下发。`session-sweep` 是受支持的工具能力键；Host 未声明该键时，三个 SessionSweep 工具必须从 registry/model request 中缺席，`tools:` 白名单或 agent profile 不能复活它们。端口存在只代表协议适配层可发起请求，不代表目标 Host 已实现 `sessionSweep/*` 方法。
 - 清理由 `session-sweeper` 子代理（GLM-5.3，thoughtLevel max）驱动：调用 `SessionSweepPlan` 获取候选（含钉住侧候选）、用 `SessionSweepSetPinned` 钉住值得保留/解除过期钉、用 `SessionSweepExecute` 提交删除清单。
 - 钉住/解除钉住是纯 membership 元数据：钉住 = 长期保留（永久退出候选守卫）；解除钉住不删除任何东西，只让该会话重新满足「可清理候选」守卫，交给后续轮次提名。两者均可逆。
 - 删除 = 先备份再删除：快照文件移动进 backlog 目录，tasks-index 行写 tombstone（deleted=1，去掉分组引用）。业务上"列表与磁盘都不再活跃"，但 backlog 可人工恢复。
@@ -43,4 +44,5 @@ agent 判断 → SessionSweep(execute, taskIds)
 3. 钉住/未读/pending/非终态/未过年龄门槛/off-peak 任务不会被删除；cron 仅保护归属存活 automation 的 run 与绑定目标，孤儿 run-transcript 按产品规则可清理（事务内复核）。
 4. `~/.zcode/agents/session-sweeper.md` 存在且 frontmatter 为 `model: <GLM-5.3 路由>` + `thoughtLevel: max`。
 5. cron automation 每 6 小时触发；prompt 指示派发 session-sweeper 子代理并回报结果；旧版 app（无该工具）中运行时 prompt 明确要求直接结束不做任何事。
-6. `pnpm typecheck` / `pnpm lint` / `pnpm architecture:check --changed` 全绿；services 测试覆盖守卫矩阵与备份-删除路径。
+6. 未声明 `session-sweep` 能力时：三个 SessionSweep 工具不出现在 runtime registry/model contract，session-sweeper agent 的显式 `tools:` 白名单不能使它们出现；声明能力且端口在场时三者出现。替换工具可以使用同一机器可读能力键机制独立启停。
+7. `pnpm typecheck` / `pnpm lint` / `pnpm architecture:check --changed` 全绿；services 测试覆盖守卫矩阵与备份-删除路径。

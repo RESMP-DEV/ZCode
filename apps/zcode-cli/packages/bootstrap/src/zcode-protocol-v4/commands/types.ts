@@ -278,6 +278,8 @@ export interface V4CommandCoreHost {
     dynamicWorkflowEnabled?: boolean;
     /** 与布尔同行的灰度 mode（launch.md「On demand: activation」）；缺省按 alwaysOn。 */
     dynamicWorkflowMode?: DynamicWorkflowMode;
+    /** host 已解析的可执行能力键（c2c9b40b）；缺省 fail-closed，门控工具不注册。 */
+    hostToolCapabilities?: CommandPayloadMap["createSession"]["hostToolCapabilities"];
   }): Promise<{ sessionId: string }>;
   /** 从父会话稳定落盘边界创建隐藏 selection_side_chat child。 */
   createSelectionSideSession?(
