@@ -76,7 +76,17 @@ husky pre-push（test:unit:affected）在合并后的 main 上报 64 失败。�
 
 - 未修复上述 31 个存量测试失败；--no-verify 只绕过 husky，不改变其失败事实。
 - 未跑桌面 E2E（改动为测试对齐与脚本工具，无运行时行为变化）。
-- 快照构建启动于 682216b4，b879200b（脚本修缮）在其后落地：仓库维护脚本不进 app
-  运行时，不影响本快照功能，下一快照自然携带。
+- 快照构建读取 git 状态发生在收尾阶段，实际以 bb523a95（含本凭证与 b879200b 脚本修缮）
+  落盘，优于上文「启动于 682216b4」的预期；`-dirty` 来自常驻未跟踪文件（.zcode/ 等）。
 - Preview 应用未重启（等待用户显式 go）；期间若渲染进程恰好懒加载新换 asar 的分块，
   按 2026-09-30 结论用页内 Refresh 即可恢复，稳态一致。
+
+## 快照验证（构建完成后追加）
+
+- manifest：`~/.local/lib/alphaheng/zcode/packages/20261018-062336-bb523a95-dirty/manifest.json`，
+  gitSha bb523a95-dirty，createdAt 2026-10-18T13:23:37Z；`current` → 该快照，
+  `previous-good` → 20261018-045822-e32f1467-dirty（可 `--rollback`）。
+- 安装一致性：/Applications/ZCode Preview.app app.asar sha256 前 16 位 4cf1fb237bc6886e
+  与快照包内副本一致；构建 exit 0，bundle 体积审计 176.8 MiB < 500 MiB。
+- 包含性：`git merge-base --is-ancestor 721235ec bb523a95` 通过（EPIPE 修复在快照内）。
+- 运行中实例未被触碰（构建脚本仅 echo 提示 smoke 脚本，未执行 launch-quit）。
