@@ -626,7 +626,7 @@ export const HostMessageTypes = {
   SessionMessageDeliveryResult: "session-message-delivery-result",
   /** main → host：反馈日志归档创建结果 */
   FeedbackLogArchiveResult: "feedback-log-archive-result",
-  /** main → host：定时任务到点派发；会话内 cron 复用 targetTaskId，历史未绑定任务才建 session */
+  /** main → host：定时任务到点派发；一律新建 fresh session（会话绑定已退役） */
   CronRun: "cron-run",
   /** main → host：闲时任务派发；首跑 createTask 新建 session，续跑带 conversationId/sessionId resume */
   OffPeakRun: "off-peak-run",

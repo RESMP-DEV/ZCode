@@ -87,7 +87,10 @@ export interface ZCodeAutomation {
   workspaceKey: string;
   workspacePath: string;
   workspaceIdentity?: string;
-  /** 会话内创建的 cron 绑定到当前 task；后续触发都投递回该 task，不再新建 session。 */
+  /**
+   * @deprecated 系统级调度（specs/automation-system-scheduling.md）已退役会话绑定：新
+   * automation 不再写入，派发一律新建 fresh session。字段仅保留读取存量迁移前的历史行。
+   */
   targetTaskId?: string;
   locationKind: ZCodeAutomationLocationKind;
   /** true=无限循环；false=有限次（配合 maxRuns）。 */
@@ -167,7 +170,10 @@ export interface ZCodeAutomationCreateParams {
   mode?: ZCodeTaskMode;
   workspacePath: string;
   workspaceIdentity?: string;
-  /** 当前会话内创建时由 runtime 注入，模型不可控。 */
+  /**
+   * @deprecated 会话绑定已退役（specs/automation-system-scheduling.md）；host 不再持久化该
+   * 字段，协议参数保留可空仅为旧 CLI 兼容。新 automation 派发一律新建 fresh session。
+   */
   targetTaskId?: string;
   /** Bot 会话创建时由 Host 注入；仅供 scheduler 终态回推，不进入 UI 展示模型。 */
   botDeliveryTarget?: ZCodeAutomationBotDeliveryTarget;
@@ -210,4 +216,36 @@ export interface ZCodeAutomationUpdateParams {
   interval?: number;
   /** 仅由管理页在用户实际修改调度时写入；undefined=保留原来源状态。 */
   scheduleEditedByUser?: boolean;
+}
+
+// ---- 系统级调度（detached cron，specs/automation-system-scheduling.md）----
+
+/**
+ * 系统级调度下「关机/休眠太久」的补跑上限：唤醒后首个 tick 只补跑最新一次到期，错过
+ * 超过该时长的到期点记 skipped（reason=machine_off_too_long）后推进，不追历史欠账。
+ */
+export const AUTOMATION_MISFIRE_OFF_TOO_LONG_MS = 24 * 60 * 60 * 1000;
+
+/** skipped run 的 reason 常量：系统级调度下错过超过补跑上限的窗口。 */
+export const AUTOMATION_MISFIRE_OFF_TOO_LONG_REASON = "machine_off_too_long";
+
+/** OS 注册方式；status 仅作展示与诊断，不驱动调度行为。 */
+export type ZCodeAutomationSchedulingRegistrationKind =
+  | "launchd"
+  | "systemd"
+  | "cron"
+  | "schtasks";
+
+/** 调度模式：app=随 app 内 scheduler（现状兜底）；system=OS 注册的 30s tick。 */
+export type ZCodeAutomationSchedulingMode = "app" | "system";
+
+/** 系统级调度的开关与注册状态（tasks-index automation_config 为唯一事实源）。 */
+export interface ZCodeAutomationSchedulingConfig {
+  mode: ZCodeAutomationSchedulingMode;
+  /** mode=system 时期望的注册方式；未注册时用于诊断展示。 */
+  registrationKind?: ZCodeAutomationSchedulingRegistrationKind;
+  enabledAt?: number;
+  disabledAt?: number;
+  /** runner 最近一次 tick 落账时间（毫秒）；供 UI/CLI 判断注册是否真的在跑。 */
+  lastTickAt?: number;
 }
