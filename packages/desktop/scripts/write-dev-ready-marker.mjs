@@ -7,9 +7,12 @@ const readyMarkerNames = {
   main: ".main-build-ready",
   host: ".host-build-ready",
   preload: ".preload-build-ready",
-  // scheduler 已成为独立 tsup target，onSuccess 会调用同一 marker 脚本。
+  // scheduler 已成为独立 tsup 目标，onSuccess 会调用同一 marker 脚本。
   // 旧白名单缺少该 target，导致 production build 在 bundle 成功后仍以 unknown target 失败。
   scheduler: ".scheduler-build-ready",
+  // automation-runner（detached cron bundle，specs/automation-system-scheduling.md）同规则登记；
+  // 漏登会让 desktop production build 在新 entry 落盘后仍以 unknown target 中止（与 scheduler 同款坑）。
+  "automation-runner": ".automation-runner-build-ready",
 };
 
 if (!Object.hasOwn(readyMarkerNames, target)) {
