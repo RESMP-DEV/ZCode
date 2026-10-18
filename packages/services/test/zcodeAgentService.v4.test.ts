@@ -554,7 +554,12 @@ describe("zcodeAgentService v4 conversation channel", () => {
         // 根因：为不存在的版本错配补写 mode、补发无 revision 的模式命令，改变了原创建合同。
         expect(commands).toHaveLength(1);
         expect(commands[0]?.params.type).toBe("createSession");
-        expect(commands[0]?.params.payload).toEqual(payload);
+        // c2c9b40b 起 Host 在 v4 create 载荷上声明可执行工具能力（session-sweep），是规格内
+        // 的合同增补（evidence/tool-capability-filtering-20261018.md）；其余字段仍须原样转发。
+        expect(commands[0]?.params.payload).toEqual({
+          ...payload,
+          hostToolCapabilities: ["session-sweep"],
+        });
       } finally {
         await service.disposeAllAndWait();
       }
