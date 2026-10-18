@@ -124,8 +124,8 @@ export const cronCreateHandler: ToolHandler = async (input, context) => {
   const automation = await context.automationPort.create(parsed, {
     // 会话内创建定时任务时模型来自当前 runtime，而不是模型可控的工具入参。
     ...(context.model ? { model: `${context.model.providerId}/${context.model.modelId}` } : {}),
-    // 会话内创建的 cron 固定复用当前 session，后续触发不再新建 session。
-    sessionId: context.sessionId,
+    // 会话绑定已退役（specs/automation-system-scheduling.md）：创建不携带 sessionId，
+    // 后续每次触发都在 automation 所属 workspace 新建 fresh session。
   });
   return {
     automation: toModelAutomation(automation),
@@ -218,7 +218,7 @@ export const cronCreateToolEntry: ToolEntry = {
     // 二阶调度要求应在工具 contract 中直接约束模型；自然语言不能靠关键词或正则可靠判定，
     // automation 执行轮的 mutation tool denylist 才是阻止递归修改任务定义的权限边界。
     description:
-      "Create a persistent scheduled automation in the current workspace. It uses the host's real current clock for relative delayMinutes schedules, or a standard 5-field cron expression in the user's local timezone for absolute/recurring schedules, and survives app restarts. The prompt must describe the final scheduled work directly and must never ask the run to create, schedule, or configure another automation or call CronCreate.",
+      "Create a persistent scheduled automation in the current workspace. It uses the host's real current clock for relative delayMinutes schedules, or a standard 5-field cron expression in the user's local timezone for absolute/recurring schedules. Automations are fully detached from this chat: they survive app restarts, and (when system scheduling is enabled) fire whether or not the app or any chat window is open, each trigger running in its own fresh session with results in the Automations view. The prompt must describe the final scheduled work directly and must never ask the run to create, schedule, or configure another automation or call CronCreate.",
     modelInstructions: [
       "Use this only when the user explicitly asks to schedule future automatic work.",
       "Interpret cron in the user's local timezone using fields: minute hour day-of-month month day-of-week. Do not convert to UTC.",
@@ -234,7 +234,7 @@ export const cronCreateToolEntry: ToolEntry = {
       "For every N minutes/hours/days/weeks/months/years, always set intervalUnit (minute|hourly|daily|weekly|monthly|yearly) and interval together. interval must be an integer from 1 to 200, including values cron could express directly. Supply a legal 5-field compatible cron only for time-of-day/day/weekday/month slots; never put an out-of-range step in cron. Examples: every 20 minutes -> intervalUnit='minute', interval=20, cron='* * * * *'; every 31 hours at minute 49 -> intervalUnit='hourly', interval=31, cron='49 * * * *'; every 40 days at 09:00 -> intervalUnit='daily', interval=40, cron='0 9 * * *'. Omit intervalUnit/interval only for ordinary calendar cron schedules, such as weekdays at 09:00.",
       "Pin minute, hour, day-of-month, and month in cron only for an absolute wall-clock date the user names outright, such as 'tomorrow at 9am' or 'on July 30 at 20:00'; set recurring=false and omit maxRuns (the default limit is 1). A relative one-shot such as '8分钟后' or 'in 2 hours' must use delayMinutes instead, because a self-computed one-shot time that has just passed silently rolls a full year forward.",
       "For exactly N scheduled runs, set recurring=false and maxRuns=N. recurring=true is indefinite and must not be combined with maxRuns.",
-      "Automations persist in the current workspace until the user deletes them. Finite automations become completed and retain their history; they are not session-only or auto-deleted.",
+      "Automations persist in the current workspace until the user deletes them. Finite automations become completed and retain their history; they are not session-only or auto-deleted. Scheduled runs never continue this chat; each trigger runs detached in its own session.",
       "Honor exact user-provided times without adding jitter or shifting the schedule.",
       "Do not include workspace paths or identities in the input; the current session workspace is used.",
       "Always set title and preserve the user's natural-language schedule phrase verbatim in it. The title may be concise, but must not omit timing such as '每20分钟', '每天早上9点', or 'every Friday'.",
@@ -336,7 +336,7 @@ export const cronUpdateToolEntry: ToolEntry = {
       // 更新“每 N 单位”时同样必须使用 carrier；否则小间隔会退化为墙钟 cron，长间隔会生成非法 cron。
       "To create or change every N minutes/hours/days/weeks/months/years, pass intervalUnit and interval together for every N-unit schedule. interval must be an integer from 1 to 200 even when cron could express N. Also pass a legal compatible cron with only the time/day/weekday/month slot; for example, every 40 days at 09:00 uses intervalUnit='daily', interval=40, cron='0 9 * * *'. Omit the pair only when preserving or using an ordinary calendar cron schedule.",
       "Use numeric maxRuns only with recurring=false. Setting recurring=true clears any old finite limit automatically; never combine recurring=true with a numeric maxRuns.",
-      "CronUpdate cannot change workspace, session binding, model, provider, mode, thought level, run count, history, or enabled state.",
+      "CronUpdate cannot change workspace, model, provider, mode, thought level, run count, history, or enabled state.",
       "Do not simulate an update by deleting and recreating the automation.",
       "After a successful update, reply with only a brief confirmation. Do not restate the automation fields in a fenced code block or simulate a text file because the UI renders the updated automation card.",
     ],

@@ -720,8 +720,8 @@ export const hostFeedbackLogArchiveResultMessageSchema = z.object({
   error: z.string().optional(),
 });
 
-// main → host：定时任务到点派发。会话内 cron 带 targetTaskId 时直接 sendPrompt 到当前会话；
-// 历史未绑定任务才 fallback createTask + sendPrompt 建 session。
+// main → host：定时任务到点派发（specs/automation-system-scheduling.md）。派发一律
+// createTask 新建 fresh session；会话绑定（targetTaskId）已随迁移 0006 退役。
 export const hostCronRunMessageSchema = z.object({
   type: z.literal("cron-run"),
   automationId: nonEmptyStringSchema,
@@ -729,7 +729,6 @@ export const hostCronRunMessageSchema = z.object({
   workspacePath: nonEmptyStringSchema,
   workspaceIdentity: z.string().optional(),
   prompt: nonEmptyStringSchema,
-  targetTaskId: nonEmptyStringSchema.optional(),
   modelSelection: modelSelectionSchema.optional(),
   mode: z.string().optional(),
 });

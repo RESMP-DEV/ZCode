@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { resolveAutomationSubmissionModelSelection } from "../src/host/automationModelSelection.js";
+import { resolveAutomationSubmissionModelSelection } from "../src/zcode-agent/automationDispatch.js";
 
 describe("resolveAutomationSubmissionModelSelection", () => {
   it("首次派发重读导入后的配置；读取失败不能落入 Workspace 默认，同 run 不重读", async () => {

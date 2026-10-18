@@ -395,4 +395,33 @@ export default defineConfig([
     onSuccess: createDevReadyMarkerHook("scheduler"),
     ...desktopTsupBundleSecurityOptions,
   },
+  {
+    // detached automation runner（specs/automation-system-scheduling.md）：由 OS 注册项
+    // （launchd/systemd/schtasks）直接执行的独立 bundle；与 scheduler 同构复用 services，
+    // 但生命周期归 OS（30s tick 短进程），不依赖 Electron/app 运行态。
+    name: "automation-runner",
+    entry: { "automation-runner/index": "src/automation-runner/index.ts" },
+    outDir: "out",
+    format: "esm",
+    platform: "node",
+    target: "node22",
+    external: desktopNodeRuntimeExternals,
+    noExternal: [
+      "@zcode/server",
+      "@zcode/shared",
+      "@zcode/rpc",
+      "@zcode/services",
+      "@zcode/client",
+      "@zcode/provider",
+      "@zcode/provider-node",
+      "@zcode/zcode-cua",
+    ],
+    define: createSharedDefines(),
+    esbuildOptions(options) {
+      applyDesktopTsupEsbuildSecurityOptions(options);
+      options.chunkNames = "automation-runner/chunk-[hash]";
+    },
+    onSuccess: createDevReadyMarkerHook("automation-runner"),
+    ...desktopTsupBundleSecurityOptions,
+  },
 ]);

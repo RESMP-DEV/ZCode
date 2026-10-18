@@ -260,9 +260,22 @@ test("手动归档走 1 天宽限；未归档终态仍需满 minAgeDays", async 
   });
 });
 
-test("孤儿 cron transcript 可清理；存活 automation 的 run 仍受保护", async () => {
+test("在途 automation run 的 session 受保护；终态 run 与孤儿 transcript 可清理", async () => {
   await withSweepEnv(async (repo, _root, now) => {
     const old = now - 20 * DAY_MS;
+    const db = repo["getDatabase"]();
+    // 可清理：终态 run 的 session（automation 存活本身不再构成保护）+ 无 run 的 cron 标记。
+    await repo.syncTaskMeta({
+      meta: {
+        ...buildMeta({
+          taskId: "run-done",
+          workspacePath: "/w",
+          updatedAt: old,
+          status: "completed",
+        }),
+        cronAutomationId: "automation-alive",
+      },
+    });
     await repo.syncTaskMeta({
       meta: {
         ...buildMeta({
@@ -274,10 +287,11 @@ test("孤儿 cron transcript 可清理；存活 automation 的 run 仍受保护"
         cronAutomationId: "automation-dead",
       },
     });
+    // 受保护：session 上挂 outcome 未终态且近期仍活跃的 run。
     await repo.syncTaskMeta({
       meta: {
         ...buildMeta({
-          taskId: "cron-live",
+          taskId: "run-live",
           workspacePath: "/w",
           updatedAt: old,
           status: "completed",
@@ -285,27 +299,37 @@ test("孤儿 cron transcript 可清理；存活 automation 的 run 仍受保护"
         cronAutomationId: "automation-alive",
       },
     });
-    // 存活 automation：只有 automations 表里存在 enabled=1 且 active 的行才受保护。
-    repo["getDatabase"]().exec(
+    db.exec(
       `INSERT INTO automations (automation_id, title, cron_expr, prompt, workspace_key, workspace_path, created_at, updated_at, next_run_at)
        VALUES ('automation-alive', 't', '* * * * *', 'p', '/w', '/w', 1, 1, 1)`,
     );
+    db.exec(
+      `INSERT INTO automation_runs (run_id, automation_id, workspace_key, trigger, dispatch_status, outcome, session_id, attempts, created_at, updated_at)
+       VALUES
+        ('automation-alive:1', 'automation-alive', '/w', 'schedule', 'dispatched', 'succeeded', 'run-done', 1, ${now - 2 * DAY_MS}, ${now - 2 * DAY_MS}),
+        ('automation-alive:2', 'automation-alive', '/w', 'schedule', 'dispatched', 'running', 'run-live', 1, ${now - DAY_MS}, ${now})`,
+    );
     const plan = await planSessionSweep(repo, {});
     const ids = plan.candidates.map((c) => c.taskId);
+    assert.ok(ids.includes("run-done"), "terminal-outcome run session is eligible");
     assert.ok(ids.includes("cron-orphan"), "orphaned cron transcript should be eligible");
-    assert.ok(!ids.includes("cron-live"), "live automation transcript stays protected");
+    assert.ok(!ids.includes("run-live"), "in-flight run session stays protected");
 
-    // Plan 与 execute 之间 automation 恢复/重建：事务内 recheck 仍必须拒绝。
-    repo["getDatabase"]().exec(
-      `INSERT INTO automations (automation_id, title, cron_expr, prompt, workspace_key, workspace_path, created_at, updated_at, next_run_at)
-       VALUES ('automation-dead', 't', '* * * * *', 'p', '/w', '/w', 1, 1, 1)`,
+    // Plan 与 execute 之间 run 仍在途：事务内 recheck 仍必须拒绝。
+    const executed = await repo.sweepDeleteTasks({ taskIds: ["cron-orphan", "run-live", "run-done"] });
+    assert.deepEqual(executed.deleted.map((meta) => meta.taskId), ["cron-orphan", "run-done"]);
+    assert.deepEqual(executed.skipped, [{ taskId: "run-live", reason: "guard_recheck_failed" }]);
+
+    // host 崩溃遗留的永不终态 run：超过在途保护窗口后不再把会话钉成不可清理。
+    db.prepare("UPDATE automation_runs SET updated_at = ? WHERE run_id = ?").run(
+      now - 25 * DAY_MS,
+      "automation-alive:2",
     );
-    const executed = await repo.sweepDeleteTasks({ taskIds: ["cron-orphan", "cron-live"] });
-    assert.deepEqual(executed.deleted.map((meta) => meta.taskId), []);
-    assert.deepEqual(executed.skipped, [
-      { taskId: "cron-orphan", reason: "guard_recheck_failed" },
-      { taskId: "cron-live", reason: "guard_recheck_failed" },
-    ]);
+    const planAfter = await planSessionSweep(repo, {});
+    assert.ok(
+      planAfter.candidates.some((c) => c.taskId === "run-live"),
+      "abandoned in-flight run stops protecting after the window",
+    );
   });
 });
 

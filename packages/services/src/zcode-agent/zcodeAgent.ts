@@ -9,6 +9,8 @@ import { ServiceChannels } from "@zcode/shared";
 import type { AppUsageRange, AppUsageSnapshot, ZCodeTaskTokenUsageResult } from "@zcode/shared";
 import type { DynamicWorkflowMode } from "@zcode/shared";
 import type { ZCodeAutomation, ZCodeAutomationRun } from "@zcode/shared";
+import type { AutomationSchedulingStatusView } from "../automation-runner/index.js";
+export type { AutomationSchedulingStatusView };
 import type {
   ZCodeStorageStartupState,
   ZCodeDeliveryKind,
@@ -801,6 +803,12 @@ export interface IZCodeAgentService {
   runAutomationNow(params: ZCodeAgentAutomationIdParams): Promise<ZCodeAgentRunAutomationNowResult>;
   listAutomationRuns(params: ZCodeAgentAutomationIdParams): Promise<ZCodeAutomationRun[]>;
   deleteAutomationRun(params: ZCodeAgentDeleteAutomationRunParams): Promise<void>;
+  /** 系统级调度状态（mode、OS 注册、last tick、告警）；供 Automations tab 状态卡。 */
+  getAutomationSchedulingStatus(): Promise<AutomationSchedulingStatusView>;
+  /** 启停系统级调度：enable 安装 OS 注册（显式用户同意的系统状态变更）。 */
+  setAutomationSchedulingEnabled(
+    params: { enabled: boolean },
+  ): Promise<AutomationSchedulingStatusView>;
   generateWorkspaceText(
     params: ZCodeAgentGenerateWorkspaceTextParams,
   ): Promise<ZCodeWorkspaceGenerateTextResult>;

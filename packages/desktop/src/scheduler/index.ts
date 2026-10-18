@@ -10,6 +10,7 @@
 // 本进程只读写 tasks-index，不碰 UI / agent runtime；createTask 由 host 域执行。
 import {
   AutomationRepo,
+  AutomationConfigRepo,
   computeAutomationNextRunAt,
   isOneShotAutomation,
   OffPeakTaskRepo,
@@ -46,6 +47,8 @@ type InFlight = {
 };
 
 const repo = new AutomationRepo();
+/** 系统级调度配置：mode=system 时本进程对 automations 完整让位（detached runner 独占认领）。 */
+const configRepo = new AutomationConfigRepo();
 /** runId → 在途派发上下文；等 main 回报后结算。scheduler 重启丢失时靠 claimDue 的僵尸回收兜底。 */
 const inFlight = new Map<string, InFlight>();
 
@@ -92,13 +95,27 @@ async function tick(): Promise<void> {
       tickRequested = false;
       try {
         const now = Date.now();
-        const claimed = await repo.claimDue(now);
-        for (const automation of claimed) {
-          await handleClaimed(automation, now);
+        // 系统级调度让位：mode=system 时 automations 由 detached runner 独占认领，
+        // 本进程只保留 off-peak（server ticket 模型维持 app 附着）。mode 读取失败按
+        // app 模式处理，不能因配置表异常停摆调度。
+        let systemScheduling = false;
+        try {
+          systemScheduling = (await configRepo.getMode()) === "system";
+        } catch (error) {
+          log(
+            "warn",
+            `read scheduling mode failed, falling back to app mode: ${error instanceof Error ? error.message : String(error)}`,
+          );
         }
-        const manualRuns = await repo.claimManualRuns(now);
-        for (const manualRun of manualRuns) {
-          await handleClaimedManual(manualRun.automation, manualRun.run);
+        if (!systemScheduling) {
+          const claimed = await repo.claimDue(now);
+          for (const automation of claimed) {
+            await handleClaimed(automation, now);
+          }
+          const manualRuns = await repo.claimManualRuns(now);
+          for (const manualRun of manualRuns) {
+            await handleClaimedManual(manualRun.automation, manualRun.run);
+          }
         }
         const offPeakClaimed = await offPeakRepo.claimDue(now);
         for (const task of offPeakClaimed) {
@@ -188,7 +205,6 @@ function postDispatchRequest(
     automationId: automation.automationId,
     runId,
     prompt: automation.prompt,
-    ...(automation.targetTaskId ? { targetTaskId: automation.targetTaskId } : {}),
     ...((fixedSelection ?? automation.modelSelection)
       ? { modelSelection: fixedSelection ?? automation.modelSelection }
       : {}),
@@ -358,6 +374,11 @@ async function dispose(): Promise<void> {
     // 忽略。
   }
   try {
+    configRepo.close();
+  } catch {
+    // 忽略。
+  }
+  try {
     offPeakRepo.close();
   } catch {
     // 忽略。
@@ -414,6 +435,7 @@ parentPort?.on("message", (event: Electron.MessageEvent) => {
 
 async function main(): Promise<void> {
   await repo.ensureReady();
+  await configRepo.ensureReady();
   // 闲时任务中断恢复：scheduler 是 app 单例、先于任何派发启动——此刻 DB 里的
   // running 必属上一个 app 实例残留，安全置回 queued（session 保留供 resume 续跑）。
   try {

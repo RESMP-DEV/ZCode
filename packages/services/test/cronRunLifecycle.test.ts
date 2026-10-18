@@ -4,7 +4,7 @@ import {
   startManualClaimHeartbeat,
   settleCronRunTerminalOutcome,
   settleManualDispatchFailureBestEffort,
-} from "../src/host/cronRunLifecycle.js";
+} from "../src/zcode-agent/automationDispatch.js";
 
 function createRepo() {
   return {

@@ -91,6 +91,7 @@ import {
   AutomationEditActionIcon,
   AutomationKeepAwakeNotice,
   AutomationMoreHorizontalIcon,
+  AutomationSystemSchedulingCard,
   AutomationPauseActionIcon,
   AutomationPausedIcon,
   AutomationRefreshIcon,
@@ -554,6 +555,9 @@ export function AutomationsSection({
   const loadRuns = useAutomationManagementStore((state) => state.loadRuns);
   const deleteRun = useAutomationManagementStore((state) => state.deleteRun);
   const refresh = useAutomationManagementStore((state) => state.refresh);
+  const schedulingStatus = useAutomationManagementStore((state) => state.schedulingStatus);
+  const schedulingBusy = useAutomationManagementStore((state) => state.schedulingBusy);
+  const setSchedulingEnabled = useAutomationManagementStore((state) => state.setSchedulingEnabled);
 
   const automationTemplates = useAutomationTemplates(clientScenesService);
   const offPeakTasks = useOffPeakTaskStore((state) => state.tasks);
@@ -1606,6 +1610,13 @@ export function AutomationsSection({
                 }
               />
             ) : null}
+            {hasAnyTasks ? (
+              <AutomationSystemSchedulingCard
+                status={schedulingStatus}
+                busy={schedulingBusy}
+                onToggle={(value) => void setSchedulingEnabled(value, zcodeAgentService)}
+              />
+            ) : null}
 
             {/* 去掉 All 混排视图后两类任务不再共用统一 grid；保留该锚点标记任务区起点。 */}
             <div data-automations-task-grid className="contents">
@@ -1855,14 +1866,21 @@ export function AutomationsSection({
 
             {/* Figma 4798:2443：空态保持唤醒提示条位于大空卡之后。 */}
             {!hasAnyTasks ? (
-              <AutomationKeepAwakeNotice
-                checked={sharedSettings?.keepAwakeWhileRunning ?? false}
-                onChange={(value) =>
-                  void updateSharedSettings({
-                    keepAwakeWhileRunning: value,
-                  })
-                }
-              />
+              <>
+                <AutomationKeepAwakeNotice
+                  checked={sharedSettings?.keepAwakeWhileRunning ?? false}
+                  onChange={(value) =>
+                    void updateSharedSettings({
+                      keepAwakeWhileRunning: value,
+                    })
+                  }
+                />
+                <AutomationSystemSchedulingCard
+                  status={schedulingStatus}
+                  busy={schedulingBusy}
+                  onToggle={(value) => void setSchedulingEnabled(value, zcodeAgentService)}
+                />
+              </>
             ) : null}
           </div>
 

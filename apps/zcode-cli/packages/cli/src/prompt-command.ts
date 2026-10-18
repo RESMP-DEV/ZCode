@@ -1,3 +1,5 @@
+/* eslint-disable max-lines -- headless prompt 命令的装配面（bootstrap 加载、headless
+   broker/observer、登录与技能子命令）集中在单入口；超过 400 行属既定形态。 */
 import { extname } from "node:path";
 import { formatJson, type PresentationSurface } from "@zcode/core";
 import type { RunContext, GlobalOptions } from "@zcode/shared-types";

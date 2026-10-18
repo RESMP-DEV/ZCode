@@ -178,6 +178,7 @@ export type {
   ZCodeAgentSetModelParams,
   ZCodeAgentSetThoughtLevelParams,
   ZCodeAgentWorkspaceTarget,
+  AutomationSchedulingStatusView,
 } from "./zcode-agent/zcodeAgent.js";
 
 // ZCode session service — app-facing session facade without ZCode Agent naming.

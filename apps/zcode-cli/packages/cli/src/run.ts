@@ -1,3 +1,5 @@
+/* eslint-disable max-lines -- CLI 命令路由集中在此单文件（与 arguments.ts 共享同一参数面），
+   拆分会复制全局旗标语义；超过 400 行属既定形态（对齐 adapters/bootstrap 的同款豁免）。 */
 import { extractDisallowedToolsArgs, parseGlobalArgs } from "./arguments.js";
 import { createNodeLoggerFactory } from "@zcode/adapters";
 import { getRuntimeInfo, type PresentationSurface } from "@zcode/core";
@@ -22,6 +24,7 @@ import { CLI_COMMAND_NAME, CLI_PROCESS_NAME } from "./process-name.js";
 import { isPluginHostInvocation, runPluginHostCommand } from "./plugin-host-command.js";
 import { isDwfChildInvocation, runDwfChildCommand } from "./dwf-child-command.js";
 import { runPrompt } from "./prompt-command.js";
+import { runAutomationCommand } from "./automation-command.js";
 import { runPluginsCommand, type PluginsCommandFlags } from "./plugins-command.js";
 import { runSkillsCommand } from "./skills-command.js";
 import { runTuiCommand } from "./tui-command.js";
@@ -319,6 +322,12 @@ export const run = async (ctx: RunContext, deps: RunDependencies = {}): Promise<
 
   if (ctx.argv[0] === "hooks") {
     return await runHooksCommand(ctx, deps, version);
+  }
+
+  // automation 委托给 desktop 打包的 runner bundle；与 hooks 同理必须在严格 parseArgs
+  // 之前接管——子命令旗标（--runner-entry 等）不属于全局参数面。
+  if (ctx.argv[0] === "automation") {
+    return await runAutomationCommand(ctx, ctx.argv.slice(1));
   }
 
   let parsed: ReturnType<typeof parseGlobalArgs>;

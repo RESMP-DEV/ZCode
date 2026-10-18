@@ -1415,25 +1415,29 @@ export class TaskIndexRepo {
 
   /**
    * Session Sweep 的守卫谓词（plan 与 execute 复用同一份）：
-   * 「不在行动中」= 未删除、未钉住、无未读、终态 completed/error、无存活
-   * cron/off-peak 身份、最后更新早于 cutoff；归档只影响年龄锚点，不能替代终态。
+   * 「不在行动中」= 未删除、未钉住、无未读、终态 completed/error、无在途
+   * cron/off-peak run、最后更新早于 cutoff；归档只影响年龄锚点，不能替代终态。
    * pendingInteraction 在 JS 侧按 meta 复核（meta_json 列）。
+   * cron 在途判定按 automation_runs 台账（specs/automation-system-scheduling.md）：
+   * session 存在 outcome 未终态（NULL/running）且近期仍有活动的 run 即受保护；
+   * 终态 run session 与孤儿 run-transcript 按常规年龄门槛可清理。host 崩溃遗留的
+   * 永不终态 run 由窗口上限兜底，不能把会话永久钉成不可清理。
    */
+  private static readonly SESSION_SWEEP_INFLIGHT_RUN_WINDOW_MS = 24 * 60 * 60 * 1000;
+  private static readonly SESSION_SWEEP_INFLIGHT_RUN_GUARD_SQL =
+    "NOT EXISTS (SELECT 1 FROM automation_runs r WHERE r.session_id = tasks.task_id AND (r.outcome IS NULL OR r.outcome = 'running') AND r.updated_at > ?)";
   private static readonly SESSION_SWEEP_GUARD_SQL = [
     "deleted = 0",
     "pinned = 0",
     "unread_at IS NULL",
     "task_status IN ('completed', 'error')",
-    // cron 拥有权按「归属 automation 是否仍存活」判定：孤儿 run-transcript
-    // （automation 已删除/停用）与普通终态会话同样可清理，否则每次派发留下的
-    // 会话永远无法被 sweep，成为永久泄漏。
-    "(cron_automation_id IS NULL OR NOT EXISTS (SELECT 1 FROM automations a WHERE a.automation_id = tasks.cron_automation_id AND a.enabled = 1 AND a.lifecycle_status = 'active'))",
+    TaskIndexRepo.SESSION_SWEEP_INFLIGHT_RUN_GUARD_SQL,
     "off_peak_task_id IS NULL",
     // 年龄门槛按归档状态分级：手动归档 = 用户显式的「已完成」信号，宽限从归档
     // 动作时刻（archived_at）起算固定 1 天——归档一个两天没动的任务不能立刻
-    // 可清理。参数顺序：第一个 ? 是归档宽限 cutoff，第二个是常规 cutoff。
-    // 未打点的行（auto-archive / 存量数据）退回 updated_at 保持原行为；
-    // 未归档终态行走 minAgeDays（默认 3 天）。
+    // 可清理。参数顺序：第一个 ? 是在途 run 窗口 cutoff，之后是归档宽限 cutoff
+    // 与常规 cutoff。未打点的行（auto-archive / 存量数据）退回 updated_at 保持
+    // 原行为；未归档终态行走 minAgeDays（默认 3 天）。
     "((archived = 1 AND COALESCE(archived_at, updated_at) < ?) OR (archived = 0 AND updated_at < ?))",
   ];
 
@@ -1443,16 +1447,13 @@ export class TaskIndexRepo {
     "pinned = 1",
     "unread_at IS NULL",
     "task_status IN ('completed', 'error')",
-    // cron 拥有权按「归属 automation 是否仍存活」判定：孤儿 run-transcript
-    // （automation 已删除/停用）与普通终态会话同样可清理，否则每次派发留下的
-    // 会话永远无法被 sweep，成为永久泄漏。
-    "(cron_automation_id IS NULL OR NOT EXISTS (SELECT 1 FROM automations a WHERE a.automation_id = tasks.cron_automation_id AND a.enabled = 1 AND a.lifecycle_status = 'active'))",
+    TaskIndexRepo.SESSION_SWEEP_INFLIGHT_RUN_GUARD_SQL,
     "off_peak_task_id IS NULL",
     // 年龄门槛按归档状态分级：手动归档 = 用户显式的「已完成」信号，宽限从归档
     // 动作时刻（archived_at）起算固定 1 天——归档一个两天没动的任务不能立刻
-    // 可清理。参数顺序：第一个 ? 是归档宽限 cutoff，第二个是常规 cutoff。
-    // 未打点的行（auto-archive / 存量数据）退回 updated_at 保持原行为；
-    // 未归档终态行走 minAgeDays（默认 3 天）。
+    // 可清理。参数顺序：第一个 ? 是在途 run 窗口 cutoff，之后是归档宽限 cutoff
+    // 与常规 cutoff。未打点的行（auto-archive / 存量数据）退回 updated_at 保持
+    // 原行为；未归档终态行走 minAgeDays（默认 3 天）。
     "((archived = 1 AND COALESCE(archived_at, updated_at) < ?) OR (archived = 0 AND updated_at < ?))",
   ];
 
@@ -1467,15 +1468,15 @@ export class TaskIndexRepo {
       return false;
     }
     if (row.off_peak_task_id != null) return false;
-    // 事务内复核与 SQL 谓词同语义：cron 孤儿可清理，存活 automation 的 run 受保护。
-    if (row.cron_automation_id != null) {
-      const live = this.getDatabase()
-        .prepare(
-          `SELECT 1 FROM automations WHERE automation_id = ? AND enabled = 1 AND lifecycle_status = 'active' LIMIT 1`,
-        )
-        .get(row.cron_automation_id);
-      if (live) return false;
-    }
+    // 事务内复核与 SQL 谓词同语义：在途 run（outcome 未终态且窗口内仍活跃）受保护。
+    const inFlight = this.getDatabase()
+      .prepare(
+        `SELECT 1 FROM automation_runs
+        WHERE session_id = ? AND (outcome IS NULL OR outcome = 'running')
+          AND updated_at > ? LIMIT 1`,
+      )
+      .get(row.task_id, Date.now() - TaskIndexRepo.SESSION_SWEEP_INFLIGHT_RUN_WINDOW_MS);
+    if (inFlight) return false;
     // 与 SQL 谓词同语义：归档行宽限锚点为 archived_at（手动归档打点），
     // 未打点退回 updated_at。
     const sweepClock = row.archived === 1 ? (row.archived_at ?? row.updated_at) : row.updated_at;
@@ -1507,7 +1508,12 @@ export class TaskIndexRepo {
         ORDER BY updated_at ASC, created_at ASC, task_id ASC
         LIMIT ?`,
       )
-      .all(archivedCutoff, cutoff, limit * 2) as unknown as TaskIndexRow[];
+      .all(
+        now - TaskIndexRepo.SESSION_SWEEP_INFLIGHT_RUN_WINDOW_MS,
+        archivedCutoff,
+        cutoff,
+        limit * 2,
+      ) as unknown as TaskIndexRow[];
     return rows
       .filter((row) => rowToMeta(row).pendingInteraction == null)
       .slice(0, limit)
@@ -1544,7 +1550,12 @@ export class TaskIndexRepo {
         ORDER BY updated_at ASC, created_at ASC, task_id ASC
         LIMIT ?`,
       )
-      .all(archivedCutoff, cutoff, limit) as unknown as TaskIndexRow[];
+      .all(
+        now - TaskIndexRepo.SESSION_SWEEP_INFLIGHT_RUN_WINDOW_MS,
+        archivedCutoff,
+        cutoff,
+        limit,
+      ) as unknown as TaskIndexRow[];
     return rows
       .filter((row) => rowToMeta(row).pendingInteraction == null)
       .map((row) => {
