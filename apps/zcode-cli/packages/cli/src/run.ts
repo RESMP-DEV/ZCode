@@ -1,3 +1,5 @@
+/* eslint-disable max-lines -- CLI 命令路由集中在此单文件（与 arguments.ts 共享同一参数面），
+   拆分会复制全局旗标语义；超过 400 行属既定形态（对齐 adapters/bootstrap 的同款豁免）。 */
 import { extractDisallowedToolsArgs, parseGlobalArgs } from "./arguments.js";
 import { createNodeLoggerFactory } from "@zcode/adapters";
 import { getRuntimeInfo, type PresentationSurface } from "@zcode/core";
