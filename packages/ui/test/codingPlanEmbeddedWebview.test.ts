@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { createElement } from "react";
 import { cleanup, render } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { JSDOM } from "jsdom";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
@@ -63,6 +64,17 @@ afterEach(() => {
   cleanup();
   h.theme = "zai-light";
 });
+
+// 修复原因：vitest 的 jsdom 全局投影不带 storage（opaque origin），window.localStorage
+// 为 undefined，window.eval 注入脚本无法写入。同一个带真实 origin 的 JSDOM 实例同时
+// 挂到 window 与 global，保证 eval 内外读写同一份 storage。
+const storageDom = new JSDOM("", { url: "http://localhost/" });
+const storage = storageDom.window.localStorage;
+beforeAll(() => {
+  Object.defineProperty(window, "localStorage", { configurable: true, value: storage });
+  vi.stubGlobal("localStorage", storage);
+});
+beforeEach(() => storage.clear());
 
 describe("coding plan embedded webview bridge", () => {
   it("exports the embedded dialog component", () => {

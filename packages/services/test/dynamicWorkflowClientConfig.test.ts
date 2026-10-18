@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ZCODE_DYNAMIC_WORKFLOW_MODE_ENV, type ApiClient } from "@zcode/shared";
 import { BigModelCodingPlanSubscriptionProvider } from "../src/coding-plan-subscription/bigmodelCodingPlanSubscriptionProvider.js";
 import { createCodingPlanSubscriptionService } from "../src/coding-plan-subscription/codingPlanSubscriptionService.js";
@@ -25,6 +25,14 @@ function createProvider(apiClient: ApiClient) {
 }
 
 describe("getDynamicWorkflowClientConfig", () => {
+  // 修复原因：本机用户环境可能常驻 ZCODE_DYNAMIC_WORKFLOW_MODE（override 来源）。
+  // afterEach 的 unstubAllEnvs 会把它还原进测试进程，导致期待 remote/default 的用例
+  // 被 override 击败。每个用例开始前显式删除，需要 override 的用例自行 stub。
+  beforeEach(() => {
+    delete process.env[ZCODE_DYNAMIC_WORKFLOW_MODE_ENV];
+  });
+
+
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllEnvs();

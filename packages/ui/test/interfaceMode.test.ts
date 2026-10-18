@@ -1,11 +1,19 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { JSDOM } from "jsdom";
 import type { IBroadcastService } from "@zcode/services";
 import { INTERFACE_MODE_STORAGE_KEY, normalizeInterfaceMode } from "@/lib/interfaceMode.js";
 import { createZCodeStore } from "@/store/index.js";
 
+// 修复原因：vitest 对 jsdom window 的全局投影会丢掉 storage 属性（localStorage 为
+// undefined，opaque-origin 行为），挂一个带真实 origin 的 JSDOM Storage 保持完整语义。
+const storage = new JSDOM("", { url: "http://localhost/" }).window.localStorage;
+beforeAll(() => {
+  vi.stubGlobal("localStorage", storage);
+});
+
 describe("界面模式偏好", () => {
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => storage.clear());
 
   it.each([
     [null, "coding"],

@@ -1,8 +1,16 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { JSDOM } from "jsdom";
 import { createStartPlanQuotaReminderStore } from "@/v4/startPlanQuotaReminderStore.js";
 
-beforeEach(() => localStorage.clear());
+// 修复原因：vitest 的 jsdom 全局投影不带 storage（opaque origin 下 localStorage
+// 为 undefined），显式挂一个带真实 origin 的 JSDOM Storage 保持完整语义。
+const storage = new JSDOM("", { url: "http://localhost/" }).window.localStorage;
+beforeAll(() => {
+  vi.stubGlobal("localStorage", storage);
+});
+
+beforeEach(() => storage.clear());
 afterEach(() => vi.restoreAllMocks());
 
 describe("Start Plan 实际展示记录", () => {

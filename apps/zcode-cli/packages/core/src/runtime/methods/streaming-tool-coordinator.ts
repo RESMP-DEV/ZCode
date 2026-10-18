@@ -1,3 +1,5 @@
+/* eslint-disable max-lines -- 流式工具调用的协调面（part 流转、取消、补齐）集中在单实现，
+   拆分会复制流转状态机；超过 400 行属既定形态（对齐 adapters/bootstrap 的同款豁免）。 */
 import { TurnMachineImpl, createPartId } from "../deps.js";
 import type {
   MessageId,
