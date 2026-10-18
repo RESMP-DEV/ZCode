@@ -136,7 +136,16 @@ export function runTasksDatabaseMigrations(
       else if (migration.id === "0002_provider_selection") importLegacyAutomationSelections(db);
       else if (migration.id === "0004_archived_clear_unread")
         db.exec(ARCHIVED_CLEAR_UNREAD_MIGRATION_SQL);
-      else if (migration.id === "0005_task_archived_at") db.exec(ARCHIVED_AT_COLUMN_MIGRATION_SQL);
+      else if (migration.id === "0005_task_archived_at") {
+        // 列已存在时跳过加列：账本回拨重放（测试夹具、账本损坏后的恢复路径）会遇到
+        // archived_at 仍在的 tasks 表，SQLite 的 ALTER 不支持 IF NOT EXISTS，直接执行会抛
+        // duplicate column 中断整个升级。与 adoptSchema 的逐列存在性检查同一约定；
+        // checksumInput 保持冻结不变，不影响已应用账本的校验。
+        const hasArchivedAt = (
+          db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[]
+        ).some((column) => column.name === "archived_at");
+        if (!hasArchivedAt) db.exec(ARCHIVED_AT_COLUMN_MIGRATION_SQL);
+      }
       else db.exec(OFFICIAL_GLM_SELECTION_MIGRATION_SQL);
       migrationFacts.executedCount++;
       db.prepare("INSERT INTO tasks_schema_migration VALUES(?,?,?)").run(

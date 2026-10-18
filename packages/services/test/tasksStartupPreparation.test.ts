@@ -91,11 +91,12 @@ it("SILENTDB-01/02: reports maintenance separately and no migration for a prepar
       migration: { kind: "initialize", executedCount: 0, committedCount: 0 },
     });
     expect(first).toContainEqual(
+      // 本地迁移 0004/0005 加入后，全新库 initialize 执行并提交 5 项迁移。
       expect.objectContaining({
         migration: {
           kind: "initialize",
-          executedCount: 3,
-          committedCount: 3,
+          executedCount: 5,
+          committedCount: 5,
           lastAppliedMigrationId: null,
         },
       }),
@@ -104,7 +105,7 @@ it("SILENTDB-01/02: reports maintenance separately and no migration for a prepar
     await prepareTasksIndexStorage(path, (phase, migration) => second.push({ phase, migration }));
     expect(second.some((s) => s.phase === "migrating")).toBe(false);
     expect(second.at(-1)).toMatchObject({
-      migration: { lastAppliedMigrationId: "0003_official_glm_selection" },
+      migration: { lastAppliedMigrationId: "0005_task_archived_at" },
     });
     expect(second.some((s) => s.phase === "maintaining")).toBe(true);
     expect(second).toContainEqual(
@@ -135,8 +136,8 @@ it("retains committed facts if closing the migration connection fails", async ()
     expect(states.at(-1)).toMatchObject({
       migration: {
         kind: "initialize",
-        executedCount: 3,
-        committedCount: 3,
+        executedCount: 5,
+        committedCount: 5,
         lastAppliedMigrationId: null,
       },
     });
@@ -188,7 +189,9 @@ it("keeps the pre-upgrade task ledger ID after committing the remaining migratio
         kind: "upgrade",
         executedCount: 1,
         committedCount: 1,
-        lastAppliedMigrationId: "0002_provider_selection",
+        // 只删 0003 行时，升级前基线是剩余账本的最高编号 0005；验证上报的是
+        // 升级前基线而非本轮刚补的 0003（该属性不随迁移数量变化）。
+        lastAppliedMigrationId: "0005_task_archived_at",
       },
     });
   } finally {

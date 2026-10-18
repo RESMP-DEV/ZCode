@@ -37,7 +37,8 @@ describe("DB109 App 库统一迁移", () => {
       "tasks_schema_migration",
     ]);
     const ledger = db.prepare("SELECT * FROM tasks_schema_migration").all();
-    expect(ledger).toHaveLength(3);
+    // 本地迁移 0004（归档行清未读）与 0005（archived_at 锚点）加入后，全新库账本为 5 行。
+    expect(ledger).toHaveLength(5);
     runTasksDatabaseMigrations(db);
     expect(db.prepare("SELECT * FROM tasks_schema_migration").all()).toEqual(ledger);
   });
@@ -257,7 +258,7 @@ describe("DB109 App 库统一迁移", () => {
       Atomics.store(new Int32Array(gate), 0, 1);
       Atomics.notify(new Int32Array(gate), 0);
       expect(await Promise.all(exits)).toEqual([[0], [0]]);
-      expect(db.prepare("SELECT * FROM tasks_schema_migration").all()).toHaveLength(3);
+      expect(db.prepare("SELECT * FROM tasks_schema_migration").all()).toHaveLength(5);
       expect(db.prepare("SELECT * FROM migration_probe").all()).toHaveLength(1);
       expect(db.prepare("PRAGMA integrity_check").get()?.integrity_check).toBe("ok");
     } finally {
