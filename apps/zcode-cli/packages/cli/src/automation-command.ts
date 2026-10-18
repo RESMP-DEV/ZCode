@@ -33,6 +33,17 @@ export function resolveAutomationRunnerDelegation(options: {
   const candidates = [
     env.ZCODE_AUTOMATION_RUNNER?.trim() || null,
     options.runnerEntry?.trim() || null,
+    // 打包态：CLI 在 <resources>/glm/ 下，runner 由 asarUnpack 落在
+    // <resources>/app.asar.unpacked/out/automation-runner/（bare Node 可执行的真实文件）。
+    cliEntry
+      ? join(
+          dirname(cliEntry),
+          "app.asar.unpacked",
+          "out",
+          "automation-runner",
+          "index.js",
+        )
+      : null,
     cliEntry ? join(dirname(cliEntry), "..", "automation-runner", "index.js") : null,
     cliEntry ? join(dirname(cliEntry), "automation-runner", "index.js") : null,
   ];

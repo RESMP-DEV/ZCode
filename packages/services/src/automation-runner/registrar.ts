@@ -37,6 +37,11 @@ export function resolveRunnerEntryPath(explicit?: string): string {
   if (explicitEntry) return explicitEntry;
   const moduleDir = dirname(fileURLToPath(import.meta.url));
   const candidates = [
+    // 打包态：asar 内的模块路径对 bare Node（ELECTRON_RUN_AS_NODE）不可执行；
+    // runner 由 electron-builder asarUnpack 落到 app.asar.unpacked/out/ —— 真实磁盘文件。
+    process.resourcesPath
+      ? join(process.resourcesPath, "app.asar.unpacked", "out", "automation-runner", "index.js")
+      : null,
     join(moduleDir, "..", "automation-runner", "index.js"),
     join(moduleDir, "..", "automation-runner", "index.ts"),
     process.argv[1] || null,

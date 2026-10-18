@@ -5,6 +5,7 @@ import type { ModelSelectionView } from "@zcode/provider";
 import type { IUsageStatsService, ProviderSettingsView } from "@zcode/services";
 import type { UsageEntitlementSnapshot } from "@zcode/shared";
 import { useStartPlanRecommendation } from "@/hooks/useStartPlanRecommendation.js";
+import { JSDOM } from "jsdom";
 import { useUsageEntitlementWithService } from "@/hooks/useUsageEntitlement.js";
 import { buildStartPlanEntitlementOptions } from "@/lib/startPlanEntitlementOptions.js";
 import { useConfirmDialogStore } from "@/store/confirmDialogStore.js";
@@ -84,11 +85,15 @@ const snapshot = (remaining: number): UsageEntitlementSnapshot =>
       ],
     },
   }) as UsageEntitlementSnapshot;
+// 修复原因：vitest 的 jsdom 全局投影不带 storage（opaque origin），显式挂真实 Storage。
+const storage = new JSDOM("", { url: "http://localhost/" }).window.localStorage;
+vi.stubGlobal("localStorage", storage);
+
 beforeEach(() => {
   f.account = "A";
   f.query.mockReset().mockImplementation(async () => snapshot(10));
   f.service = { getEntitlementSnapshot: f.query } as unknown as IUsageStatsService;
-  localStorage.clear();
+  storage.clear();
 });
 afterEach(() => {
   act(() => useConfirmDialogStore.getState().settleChoice("dismiss"));
