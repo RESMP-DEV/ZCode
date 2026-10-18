@@ -42,3 +42,16 @@
   tool-contracts 的 ReplyToChannel.outputSchema anyOf、message-persistence-anchor、
   runtime-module-boundary、runtime-unbound-resume、runtime-trace、subagent-background、
   runtime-compact）。本次改动未新增任何失败，也未修复存量失败。
+
+## 构建阻塞修复（同日追加，e32f1467）
+
+- 首次 `scripts/build-and-link-zcode.sh` 在 `prepare:remote-assets` 失败：
+  `@zcode/bootstrap` 的 tsc 报 `v4-bridge.ts(1240) TS2339: Property
+  'hostToolCapabilities' does not exist`——c2c9b40b 给 v4 createSession wire schema
+  与 bridge 解构加了字段，漏了 `zcode-protocol-v4/commands/types.ts` 的
+  `createSessionRecord` hook 参数类型。
+- **过程发现（待办）**：仓库根 `pnpm typecheck`（tsc -b packages/...）不覆盖
+  `apps/zcode-cli` 工作区，bootstrap 的类型错误因此漏网；`pnpm -r typecheck`（在
+  apps/zcode-cli 下）exit 0 已在本修复后验证。
+- 修复为纯类型声明（2 行）。bootstrap 套件存在存量 flaky 失败（同机三连跑 47/49/44
+  failed，波动与本次改动无关；纯类型改动不影响运行时）。
