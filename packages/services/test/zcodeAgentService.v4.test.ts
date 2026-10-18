@@ -1373,11 +1373,13 @@ describe("zcodeAgentService v4 conversation channel", () => {
       });
 
       const commandRequest = readRequests(logPath).find((entry) => entry.method === "v4/command");
+      // CronDelete 刻意不在执行轮 denylist（automationToolPolicy.ts：执行轮需要删除
+      // 触发本轮的 automation 做自清理，范围校验在 CronDelete handler 执行边界）。
       expect(commandRequest?.params.payload).toEqual({
         inputOrigin: "desktop",
         text: "执行定时任务",
         automationId: "automation-cron",
-        toolDisallowlist: ["ExistingDeniedTool", "CronCreate", "CronUpdate", "CronDelete"],
+        toolDisallowlist: ["ExistingDeniedTool", "CronCreate", "CronUpdate"],
       });
     } finally {
       await service.disposeAllAndWait();

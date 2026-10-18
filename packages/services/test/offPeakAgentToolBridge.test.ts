@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  AUTOMATION_MUTATION_TOOL_NAMES,
-  mergeAutomationMutationToolDenylist,
+  mergeAutomationDefinitionToolDenylist,
   mergeOffPeakMutationToolDenylist,
   OFF_PEAK_MUTATION_TOOL_NAMES,
 } from "../src/zcode-agent/automationToolPolicy.js";
@@ -11,16 +10,17 @@ import {
   resolveOffPeakToolSelection,
   toProtocolOffPeakTaskSnapshot,
 } from "../src/zcode-agent/zcodeAgentService.js";
-import { OFF_PEAK_PROVIDER_IDS } from "@zcode/shared";
+import { AUTOMATION_DEFINITION_TOOL_NAMES, OFF_PEAK_PROVIDER_IDS } from "@zcode/shared";
 import { offPeakSelectionView } from "./fixtures/offPeakSelection.js";
 
 describe("off-peak tool policy（D49）", () => {
-  it("OffPeakCreate 绝不混入 AUTOMATION_MUTATION_TOOL_NAMES（cron 轮放行是产品定案 D49-3）", () => {
+  it("OffPeakCreate 绝不混入 AUTOMATION_DEFINITION_TOOL_NAMES（cron 轮放行是产品定案 D49-3）", () => {
     // 最大照抄陷阱回归锁：任何一份 automation 常量副本混入 OffPeakCreate 都会让
-    // cron automation 执行轮误 deny 组合玩法。
-    expect(AUTOMATION_MUTATION_TOOL_NAMES).not.toContain("OffPeakCreate");
+    // cron automation 执行轮误 deny 组合玩法。常量已更名 AUTOMATION_DEFINITION_TOOL_NAMES
+    // （单一事实源在 @zcode/shared；CronDelete 刻意不进 denylist，见 automationToolPolicy.ts）。
+    expect(AUTOMATION_DEFINITION_TOOL_NAMES).not.toContain("OffPeakCreate");
     expect(OFF_PEAK_MUTATION_TOOL_NAMES).toEqual(["OffPeakCreate"]);
-    expect(mergeAutomationMutationToolDenylist(undefined)).not.toContain("OffPeakCreate");
+    expect(mergeAutomationDefinitionToolDenylist(undefined)).not.toContain("OffPeakCreate");
   });
 
   it("mergeOffPeakMutationToolDenylist 只追加 OffPeakCreate 且不覆盖既有策略", () => {

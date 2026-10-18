@@ -1026,7 +1026,9 @@ describe("ZCode legacy task compat task index", () => {
             text: "run scheduled prompt",
             heldQueueDisposition: "keepQueueAndSend",
             automationId: "automation-1",
-            toolDisallowlist: ["CronCreate", "CronUpdate", "CronDelete"],
+            // CronDelete 刻意不在执行轮 denylist（automationToolPolicy.ts：执行轮需要
+            // 删除触发本轮的 automation 做自清理，范围校验在 CronDelete handler 边界）。
+            toolDisallowlist: ["CronCreate", "CronUpdate"],
           },
         }),
       }),
@@ -2496,7 +2498,8 @@ describe("ZCode legacy task compat task index", () => {
           text: "每 5 分钟给我讲个冷笑话",
           heldQueueDisposition: "keepQueueAndSend",
           automationId: "automation-parent",
-          toolDisallowlist: ["CronCreate", "CronUpdate", "CronDelete"],
+          // CronDelete 刻意不在执行轮 denylist（见 automationToolPolicy.ts 设计注释）。
+          toolDisallowlist: ["CronCreate", "CronUpdate"],
         },
       }),
     });
