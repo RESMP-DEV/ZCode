@@ -9,7 +9,7 @@ import {
   type ZCodeAutomationScheduleRule,
   type ModelSelection,
 } from "@zcode/shared";
-import type { IZCodeAgentService } from "@zcode/services";
+import type { AutomationSchedulingStatusView, IZCodeAgentService } from "@zcode/services";
 import { logger } from "@/logger.js";
 
 // 定时任务(automation)管理 store：走 zcode-agent RPC（列表 / 创建 / 编辑 / 启停 / 重跑 / 删除 + 运行历史）。
@@ -61,6 +61,9 @@ export interface AutomationManagementState {
   // 正在进行的写操作标记，用于禁用对应按钮（如 `automation:delete:<id>`）。
   operationId: string | null;
   runsCache: Record<string, AutomationRunsEntry>;
+  // 系统级调度状态卡（specs/automation-system-scheduling.md）：加载失败不阻塞列表。
+  schedulingStatus: AutomationSchedulingStatusView | null;
+  schedulingBusy: boolean;
   initialize: (params: {
     workspacePath: string;
     workspaceIdentity?: string;
@@ -98,6 +101,12 @@ export interface AutomationManagementState {
     runId: string,
     agentService: IZCodeAgentService,
   ) => Promise<void>;
+  loadSchedulingStatus: (agentService: IZCodeAgentService) => Promise<void>;
+  /** 启停系统级调度（enable 安装 OS 注册）；返回是否成功。 */
+  setSchedulingEnabled: (
+    enabled: boolean,
+    agentService: IZCodeAgentService,
+  ) => Promise<boolean>;
 }
 
 function toMessage(error: unknown): string {
@@ -172,6 +181,8 @@ export const useAutomationManagementStore = create<AutomationManagementState>((s
   error: null,
   operationId: null,
   runsCache: {},
+  schedulingStatus: null,
+  schedulingBusy: false,
 
   async initialize({ workspacePath, workspaceIdentity, agentService }) {
     const normalizedIdentity = workspaceIdentity?.trim() || null;
@@ -192,6 +203,7 @@ export const useAutomationManagementStore = create<AutomationManagementState>((s
       // 切换 workspace 时清运行历史缓存（历史按 automationId 记，跨 workspace 无意义）。
       ...(hasCache ? {} : { runsCache: {} }),
     });
+    void get().loadSchedulingStatus(agentService);
     await loadInto(set, get, {
       workspacePath,
       workspaceIdentity: normalizedIdentity,
@@ -205,6 +217,7 @@ export const useAutomationManagementStore = create<AutomationManagementState>((s
     if (!workspacePath) return;
     const requestId = ++automationLoadSeq;
     set({ error: null });
+    void get().loadSchedulingStatus(agentService);
     await loadInto(set, get, {
       workspacePath,
       workspaceIdentity,
@@ -525,6 +538,37 @@ export const useAutomationManagementStore = create<AutomationManagementState>((s
       set({ error: toMessage(error) });
     } finally {
       set({ operationId: null });
+    }
+  },
+
+  async loadSchedulingStatus(agentService) {
+    try {
+      const schedulingStatus = await agentService.getAutomationSchedulingStatus();
+      set({ schedulingStatus });
+    } catch (error) {
+      // 状态卡是诊断面；读取失败不让列表也失败，只清空已显示的状态。
+      logger.warn("[automations] load scheduling status failed", {
+        error: toMessage(error),
+      });
+      set({ schedulingStatus: null });
+    }
+  },
+
+  async setSchedulingEnabled(enabled, agentService) {
+    set({ schedulingBusy: true });
+    try {
+      const schedulingStatus = await agentService.setAutomationSchedulingEnabled({ enabled });
+      set({ schedulingStatus });
+      return true;
+    } catch (error) {
+      logger.error("[automations] set scheduling enabled failed", {
+        enabled,
+        error: toMessage(error),
+      });
+      set({ error: toMessage(error) });
+      return false;
+    } finally {
+      set({ schedulingBusy: false });
     }
   },
 }));

@@ -6933,6 +6933,12 @@ const enUS: Record<string, string> = {
   "automations.statusFilter.completed": "Completed",
   "automations.statusFilter.failed": "Failed",
   "automations.statusFilter.empty": "No tasks match this filter",
+  "automations.scheduling.title": "System scheduling",
+  "automations.scheduling.statusAppMode": "App mode — automations fire only while ZCode is running",
+  "automations.scheduling.statusSystemMode":
+    "System mode ({kind}) — fires whether or not ZCode is running",
+  "automations.scheduling.lastTickLabel": "Last tick: ",
+  "automations.scheduling.lastTickNever": "Last tick: never",
   "offPeak.keepAwakeBanner": "Keep your computer awake while ZCode is running a chat.",
   "offPeak.sectionTitle": "Idle-time tasks",
   "offPeak.createButton": "Create idle-time task",

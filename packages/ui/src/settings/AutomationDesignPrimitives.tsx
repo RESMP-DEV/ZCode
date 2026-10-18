@@ -2,6 +2,7 @@ import {
   TID_AUTOMATION_CREATE_MANUALLY,
   TID_AUTOMATION_CREATE_MENU,
 } from "@zcode/shared";
+import type { AutomationSchedulingStatusView } from "@zcode/services";
 import type { ReactNode } from "react";
 import {
   DropdownMenu,
@@ -113,6 +114,64 @@ export function AutomationKeepAwakeNotice({
         color="blue"
         size="sm"
       />
+    </div>
+  );
+}
+
+/**
+ * 系统级调度状态卡（specs/automation-system-scheduling.md）：展示 OS 注册调度模式、
+ * 最近 tick 与漂移告警；开关执行 enable（安装 OS 注册，显式系统状态变更）/ disable。
+ * 状态为 null（读取失败）时显示 app 模式兜底文案，不让诊断面拖垮列表。
+ */
+export function AutomationSystemSchedulingCard({
+  status,
+  busy,
+  onToggle,
+}: {
+  status: AutomationSchedulingStatusView | null;
+  busy: boolean;
+  onToggle: (enabled: boolean) => void;
+}) {
+  const { intl, locale } = useZCodeIntl();
+  const systemOn = status?.config.mode === "system" && status.registration.installed;
+  const statusLine = !systemOn
+    ? intl.formatMessage({ id: "automations.scheduling.statusAppMode" })
+    : intl.formatMessage({ id: "automations.scheduling.statusSystemMode" }, {
+        kind: status?.registration.kind ?? "",
+      });
+  const lastTick = status?.config.lastTickAt
+    ? `${intl.formatMessage({ id: "automations.scheduling.lastTickLabel" })}${new Date(
+        status.config.lastTickAt,
+      ).toLocaleString(locale)}`
+    : intl.formatMessage({ id: "automations.scheduling.lastTickNever" });
+  return (
+    <div
+      data-automations-system-scheduling
+      className="flex min-h-11 w-full flex-col gap-1 overflow-hidden rounded-[10px] bg-surface px-3 py-3 text-foreground-subtle"
+    >
+      <div className="flex w-full items-center gap-3">
+        <span className="flex size-5 shrink-0 items-center justify-center" aria-hidden="true">
+          <AutomationInfoIcon className="size-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-ui-base leading-5 text-foreground">
+            {intl.formatMessage({ id: "automations.scheduling.title" })}
+          </p>
+          <p className="text-ui-sm leading-4">
+            {statusLine} · {lastTick}
+          </p>
+        </div>
+        <AutomationSwitchToggle
+          checked={systemOn}
+          ariaLabel={intl.formatMessage({ id: "automations.scheduling.title" })}
+          onChange={busy ? () => {} : onToggle}
+          color="blue"
+          size="sm"
+        />
+      </div>
+      {status?.warnings.length ? (
+        <p className="pl-8 text-ui-sm leading-4 text-warning">{status.warnings.join("；")}</p>
+      ) : null}
     </div>
   );
 }
