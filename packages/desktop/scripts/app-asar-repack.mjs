@@ -20,6 +20,11 @@ export function createAppAsarPackArgs({ sourceDir, destinationPath, targetPlatfo
     ASAR_UNPACK_NATIVE_GLOB,
     "--unpack-dir",
     `node_modules/node-pty/prebuilds/${targetPlatformKey}`,
+    // automation-runner（detached cron，specs/automation-system-scheduling.md）由 OS 注册项
+    // 以 ELECTRON_RUN_AS_NODE 直接执行：bare Node 读不了 asar，必须与 electron-builder
+    // 的 asarUnpack 同步在重打包时保持 unpacked（否则 repack 会把它写回 asar）。
+    "--unpack-dir",
+    "out/automation-runner",
   ];
 }
 
