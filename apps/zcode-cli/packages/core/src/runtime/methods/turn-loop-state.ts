@@ -154,6 +154,23 @@ export function hasPositiveAutomationTurnIdentity(state: RegularTurnLoopState): 
   return state.turnTraceContext.queryId?.trim().startsWith(AUTOMATION_QUERY_ID_PREFIX) ?? false;
 }
 
+/**
+ * 执行边界 currentTurnAutomationId 的事实源：显式 automationId 优先，否则从
+ * automation- 前缀 queryId 解析（规则与 bootstrap 的 resolvePromptTurnAutomationId
+ * 一致：首个 ":" 前的整段就是 automationId，id 自身可再含 "automation-" 前缀）。
+ * 只把前缀当 automationTurn 布尔而不解析成 id 时，漏传 automationId 的派发轮
+ * 会 fail closed 地拒绝 CronDelete 自清理——身份信息其实就在 queryId 里。
+ */
+export function resolveCurrentTurnAutomationId(state: RegularTurnLoopState): string | undefined {
+  const explicit = state.automationId?.trim();
+  if (explicit) return explicit;
+  const queryId = state.turnTraceContext.queryId?.trim();
+  if (!queryId?.startsWith(AUTOMATION_QUERY_ID_PREFIX)) return undefined;
+  const separatorIndex = queryId.indexOf(":");
+  const automationId = separatorIndex >= 0 ? queryId.slice(0, separatorIndex) : queryId;
+  return automationId.length > AUTOMATION_QUERY_ID_PREFIX.length ? automationId : undefined;
+}
+
 export function isAutomationMutationRestrictedTurn(state: RegularTurnLoopState): boolean {
   if (state.automationId?.trim()) return true;
   if (state.turnTraceContext.queryId?.trim().startsWith(AUTOMATION_QUERY_ID_PREFIX)) return true;

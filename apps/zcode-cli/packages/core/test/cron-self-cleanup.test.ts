@@ -3,6 +3,11 @@ import test from "node:test";
 import type { AutomationPort, CronAutomation } from "@zcode/contracts";
 import type { ToolExecutionContext } from "../src/tool/types.js";
 import { cronDeleteToolEntry, cronListToolEntry } from "../src/tool/handlers/cron.js";
+import {
+  hasPositiveAutomationTurnIdentity,
+  resolveCurrentTurnAutomationId,
+} from "../src/runtime/methods/turn-loop-state.js";
+import type { RegularTurnLoopState } from "../src/runtime/methods/turn-loop-state.js";
 
 // specs/automation-turn-self-cleanup.md：CronDelete 在执行轮只放行触发本轮的 automation
 // （自清理），身份缺失 fail closed；交互轮任意 id 走原语义。CronList 仅在执行轮为匹配
@@ -158,4 +163,82 @@ test("prepareApproval proceeds for self-cleanup and denies other targets inside 
   // 交互轮保持 ask，走正常人工审批。
   assert.deepEqual(prepare({ id: "auto-self" }, {}), { gate: "ask" });
   assert.deepEqual(prepare({ wrong: "shape" }, {}), { gate: "ask" });
+});
+
+// 回归（2026-10-18 实测）：legacy session/send 派发漏传显式 automationId，只有
+// automation- 前缀 queryId（run_id 形如 automation-<id>:<ts>）。执行边界若只把
+// 前缀当 automationTurn 布尔而不解析出 id，本轮会 automationTurn=true 却
+// currentTurnAutomationId 缺失，CronDelete 自清理被永久拒绝（PR loop 自动化
+// 因而在 PR 合并后 36 轮 no-op 空转，自删除两度被拒）。
+function makeLoopState(
+  overrides: Partial<Pick<RegularTurnLoopState, "automationId" | "turnTraceContext">>,
+): RegularTurnLoopState {
+  return {
+    automationId: undefined,
+    turnTraceContext: { queryId: undefined },
+    ...overrides,
+  } as unknown as RegularTurnLoopState;
+}
+
+test("resolveCurrentTurnAutomationId prefers explicit automationId over the prefixed queryId", () => {
+  const state = makeLoopState({
+    automationId: "automation-explicit",
+    turnTraceContext: { queryId: "automation-other:123" },
+  });
+  assert.equal(resolveCurrentTurnAutomationId(state), "automation-explicit");
+});
+
+test("resolveCurrentTurnAutomationId derives the id from a run_id-shaped queryId", () => {
+  // 真实 run_id：automationId 自身已含 automation- 前缀，首个 ":" 前为完整 id。
+  const state = makeLoopState({
+    turnTraceContext: { queryId: "automation-809426e9-b390-4396-b727-6b7b9392ca7b:1792333683939" },
+  });
+  assert.equal(
+    resolveCurrentTurnAutomationId(state),
+    "automation-809426e9-b390-4396-b727-6b7b9392ca7b",
+  );
+});
+
+test("resolveCurrentTurnAutomationId accepts a prefixed queryId without a run suffix", () => {
+  const state = makeLoopState({ turnTraceContext: { queryId: " automation-auto-self " } });
+  assert.equal(resolveCurrentTurnAutomationId(state), "automation-auto-self");
+});
+
+test("resolveCurrentTurnAutomationId fails closed on bare prefix, blank, or unprefixed queryId", () => {
+  assert.equal(
+    resolveCurrentTurnAutomationId(makeLoopState({ turnTraceContext: { queryId: "automation-" } })),
+    undefined,
+  );
+  assert.equal(
+    resolveCurrentTurnAutomationId(makeLoopState({ turnTraceContext: { queryId: "  " } })),
+    undefined,
+  );
+  assert.equal(
+    resolveCurrentTurnAutomationId(makeLoopState({ turnTraceContext: { queryId: "auto-self:1" } })),
+    undefined,
+  );
+  assert.equal(resolveCurrentTurnAutomationId(makeLoopState({})), undefined);
+});
+
+test("derived id unlocks self-cleanup when the prefixed queryId is the only identity", async () => {
+  const state = makeLoopState({
+    turnTraceContext: { queryId: "automation-809426e9-b390-4396-b727-6b7b9392ca7b:1792333683939" },
+  });
+  assert.equal(hasPositiveAutomationTurnIdentity(state), true);
+  assert.equal(
+    resolveCurrentTurnAutomationId(state),
+    "automation-809426e9-b390-4396-b727-6b7b9392ca7b",
+  );
+  const port = makePort([makeAutomation("automation-809426e9-b390-4396-b727-6b7b9392ca7b")]);
+  const context = makeContext({
+    automationTurn: true,
+    currentTurnAutomationId: "automation-809426e9-b390-4396-b727-6b7b9392ca7b",
+    automationPort: port,
+  });
+  const result = (await cronDeleteToolEntry.handler(
+    { id: "automation-809426e9-b390-4396-b727-6b7b9392ca7b" },
+    context,
+  )) as { deleted: boolean };
+  assert.equal(result.deleted, true);
+  assert.deepEqual(port.deleted, ["automation-809426e9-b390-4396-b727-6b7b9392ca7b"]);
 });

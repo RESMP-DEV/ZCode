@@ -34,6 +34,7 @@ import {
   hasPositiveAutomationTurnIdentity,
   isOffPeakCreateRestrictedTurn,
   recordModelHistoryRound,
+  resolveCurrentTurnAutomationId,
   type RegularTurnLoopState,
 } from "./turn-loop-state.js";
 import { createRuntimeAssistantEntry } from "../../agent/message-history.js";
@@ -320,7 +321,7 @@ async function executeDuringStream(
     model: state.model,
     toolSearch: options.toolSearch,
     automationTurn: hasPositiveAutomationTurnIdentity(state),
-    currentTurnAutomationId: state.automationId,
+    currentTurnAutomationId: resolveCurrentTurnAutomationId(state),
     offPeakTurn: isOffPeakCreateRestrictedTurn(state),
     signal: options.abortSignal,
     traceContext: options.traceContext,
