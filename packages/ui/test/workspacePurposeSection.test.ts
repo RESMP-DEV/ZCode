@@ -2,6 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { WorkspacePurposeSection } from "@/WorkspaceSidebar/WorkspacePurposeSection.js";
+import { ZCodeIntlProvider } from "@/i18n/IntlProvider.js";
 
 vi.mock("@dnd-kit/sortable", () => ({
   useSortable: () => ({
@@ -21,18 +22,23 @@ vi.mock("@dnd-kit/utilities", () => ({
 
 function renderSection(open: boolean) {
   return renderToStaticMarkup(
+    // v3.15.1 起 useZCodeIntl 在 Provider 外直接抛错（严格守卫），SSR 测试须包裹 Provider。
     createElement(
-      WorkspacePurposeSection,
-      {
-        title: "Projects",
-        open,
-        onOpenChange: vi.fn(),
-        action: createElement("button", { "data-testid": "section-action" }, "Add"),
-        testId: "purpose-section",
-        sortableId: "projects",
-        dragHandleLabel: "Move Projects section",
-      },
-      createElement("div", { "data-testid": "section-content" }, "Details"),
+      ZCodeIntlProvider,
+      { initialLocale: "zh-CN" },
+      createElement(
+        WorkspacePurposeSection,
+        {
+          title: "Projects",
+          open,
+          onOpenChange: vi.fn(),
+          action: createElement("button", { "data-testid": "section-action" }, "Add"),
+          testId: "purpose-section",
+          sortableId: "projects",
+          dragHandleLabel: "Move Projects section",
+        },
+        createElement("div", { "data-testid": "section-content" }, "Details"),
+      ),
     ),
   );
 }

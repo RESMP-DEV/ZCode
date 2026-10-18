@@ -177,6 +177,9 @@ vi.mock("@/store/TabStoreProvider.js", () => ({
       activeWorkspacePath: undefined,
       tabs: [],
     }),
+  // SettingsPage 渲染期调用 useTabStoreApi（实际使用在事件回调里）；v3.15.1 起
+  // 该 import 存在，mock 缺这个导出会让整个 SSR 渲染直接抛 "No export defined"。
+  useTabStoreApi: () => ({}) as never,
 }));
 
 vi.mock("@/lib/settingsNavigation.js", () => ({

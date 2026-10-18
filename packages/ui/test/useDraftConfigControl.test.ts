@@ -290,7 +290,9 @@ describe("useDraftConfigControl slash command hydration", () => {
       }
       await act(async () => root.render(createElement(Probe, { ready: true })));
       expect(control!.composerDraft.text).toBe("content stays");
-      expect(control!.draftConfig.mode).toBe("build");
+      // 未编辑时落新任务默认 mode（PR #3 feat/ui-defaults 起为 yolo）；用户先编辑过
+      // 配置（mode/model）时 hydration 解析会把 mode 钉回 build（plan 不可用的回退）。
+      expect(control!.draftConfig.mode).toBe(edited === "none" ? "yolo" : "build");
       expect(control!.draftConfig.planEnabled).toBe(edited === "mode");
       if (edited === "mode") expect(control!.composerDraft.modelSelection).toBeUndefined();
       else expect(control!.draftConfig.modelSelection?.modelId).toBe("model");
@@ -622,7 +624,8 @@ describe("useDraftConfigControl slash command hydration", () => {
     act(() => control!.updateComposerContent({ text: "保留原选择" }));
     act(() => control!.handleDraftSwitchMode("plan"));
     expect(readV4ComposerDraft(workspacePath, undefined, "__draft__")).toMatchObject({
-      mode: "build",
+      // plan 由 planEnabled 表达；mode 字段保留底层默认档，新默认为 yolo（PR #3）。
+      mode: "yolo",
       planEnabled: true,
       text: "保留原选择",
       modelSelection: { providerId: "provider", modelId: "old" },

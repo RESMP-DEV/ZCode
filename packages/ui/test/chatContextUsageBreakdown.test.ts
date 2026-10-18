@@ -316,7 +316,10 @@ describe("ChatCodingPlanUsageRemainingPanel MCP 额度", () => {
                     type: "MCP_USAGE_LIMIT",
                     percentage: 25,
                     remaining: 75,
-                    nextResetTime: Date.UTC(2025, 7, 21),
+                    // 本地正午构造：组件按本地时区格式化日期，固定 UTC 午夜在西半球
+                    // 时区会落到前一天（PDT 下 Aug 21 00:00Z = Aug 20 17:00），
+                    // 下方 "Aug 21" 断言因此对时区敏感。
+                    nextResetTime: new Date(2025, 7, 21, 12, 0, 0).getTime(),
                     usageDetails: [],
                   },
                 },
