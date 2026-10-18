@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest"; // vitest 4 不再注册 node:test 套件（上游升级后集体断签），API 面相同改用 vitest 注册
 import { initializeNewTaskDraft } from "../src/v4/composer/newTaskDraft.js";
 
 // specs/new-prompt-default-permission.md：新 prompt 的权限模式恒为 yolo，

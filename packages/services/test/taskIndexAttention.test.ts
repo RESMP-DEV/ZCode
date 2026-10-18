@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import { test } from "vitest"; // vitest 4 不再注册 node:test 套件（上游升级后集体断签），API 面相同改用 vitest 注册
 import type { ZCodeTaskMeta } from "@zcode/shared";
 import { pendingInteractionChanged } from "../src/zcode-agent/zcodeTaskIndexSyncer.js";
 import { TaskIndexRepo } from "../src/session/taskIndexRepo.js";

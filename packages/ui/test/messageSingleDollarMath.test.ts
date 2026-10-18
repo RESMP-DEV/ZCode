@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest"; // vitest 4 不再注册 node:test 套件（上游升级后集体断签），API 面相同改用 vitest 注册
 import { normalizeMessageSingleDollarMath } from "../src/components/ai-elements/message-single-dollar-math.js";
 
 // specs/message-single-dollar-math.md：单个 `$` 的配对必须与 remark-math 看到的
