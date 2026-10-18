@@ -171,8 +171,9 @@ describe("settingService", () => {
       recentProjects: [],
       locale: "zh-CN",
       localePreference: "system",
-      taskAutoArchiveEnabled: false,
-      taskAutoArchiveOlderThanDays: 7,
+      // 7c95edd6：自动归档默认升级为「开启、3 天（72h）」，未显式保存过的键一次性写入新默认。
+      taskAutoArchiveEnabled: true,
+      taskAutoArchiveOlderThanDays: 3,
       messageStreamShowReasoning: true,
       messageStreamShowReasoningMigrationInitialized: true,
       messageStreamShowTodos: false,
