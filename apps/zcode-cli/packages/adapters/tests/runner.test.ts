@@ -5840,6 +5840,62 @@ describe("AiSdkModelAdapter", () => {
     expect(events.at(-1)?.type).toBe("finish");
   });
 
+  it("does not treat a compact direct-code EPIPE with an HTTP response status as stale transport", async () => {
+    // 评审回归（2026-10-18）：直接 code 命中陈旧集合时不得越过「已收到 HTTP 响应」
+    // 的证据；带 responseStatus 的 EPIPE 与 providerCode 路径同一边界。
+    const statusedEpipe = Object.assign(new Error("write EPIPE mid-body"), {
+      code: "EPIPE",
+      responseStatus: 200,
+    });
+    let attempts = 0;
+    const runtime: AiSdkModelRuntime = {
+      async generateText() {
+        throw new Error("not used");
+      },
+      streamText() {
+        attempts += 1;
+        if (attempts === 1) {
+          return { fullStream: streamThenFail([{ type: "start" }], statusedEpipe) } as never;
+        }
+        return {
+          fullStream: stream([
+            { type: "start" },
+            { type: "text-start", id: "retry-text" },
+            { type: "text-delta", id: "retry-text", text: "ok" },
+            { type: "text-end", id: "retry-text" },
+            {
+              type: "finish",
+              finishReason: "stop",
+              rawFinishReason: undefined,
+              totalUsage: usage(2, 1),
+            },
+          ]),
+        } as never;
+      },
+    };
+    const adapter = new AiSdkModelAdapter({
+      registry: registry(),
+      retry: { baseDelayMs: 0, jitter: false, maxAttempts: 2, maxDelayMs: 0 },
+      runtime,
+    });
+
+    const terminalError = await (async () => {
+      for await (const _event of executeAdapterStreamText(adapter, {
+        providerId: "test" as never,
+        modelId: "model-a" as never,
+        messages: [{ role: "user", content: "Summarize without tools" }],
+        preserveProviderStreamBoundaries: true,
+      })) {
+        // no-op
+      }
+    })().catch((error: unknown) => error);
+
+    expect(attempts).toBe(1);
+    expect(terminalError).toMatchObject({
+      context: { httpResponseStatus: 200 },
+    });
+  });
+
   it("stops compact SSE retry after a raw provider message_start", async () => {
     const resetError = Object.assign(new Error("aborted"), { code: "ECONNRESET" });
     const includeRawChunks: Array<boolean | undefined> = [];

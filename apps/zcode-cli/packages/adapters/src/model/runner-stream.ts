@@ -1563,7 +1563,10 @@ function isCompactStaleStreamFailure(
   }
 
   if (isCompactStaleCode(getErrorCode(unwrapped))) {
-    return true;
+    // 2026-10-18 评审指出：直接 code 命中也不能越过「已收到 HTTP 响应」的证据 ——
+    // 带 responseStatus 的 EPIPE 与下方 providerCode 路径是同一边界，否则 spec
+    // 承诺的 HTTP 200 body 内不重试对直接 code 形态不成立。
+    return httpResponseStatus === undefined;
   }
   if (httpResponseStatus !== undefined) {
     return false;
