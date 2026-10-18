@@ -26,6 +26,7 @@ describe("DB109 App 库统一迁移", () => {
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
       .all();
     expect(tables.map((row) => row.name)).toEqual([
+      "automation_config",
       "automation_runs",
       "automations",
       "off_peak_tasks",
@@ -38,8 +39,7 @@ describe("DB109 App 库统一迁移", () => {
     ]);
     const ledger = db.prepare("SELECT * FROM tasks_schema_migration").all();
     // 本地迁移 0004（归档行清未读）与 0005（archived_at 锚点）加入后，全新库账本为 5 行。
-    expect(ledger).toHaveLength(5);
-    runTasksDatabaseMigrations(db);
+    expect(ledger).toHaveLength(6);    runTasksDatabaseMigrations(db);
     expect(db.prepare("SELECT * FROM tasks_schema_migration").all()).toEqual(ledger);
   });
 
@@ -158,6 +158,7 @@ describe("DB109 App 库统一迁移", () => {
     const db = open();
     runTasksDatabaseMigrations(db);
     db.exec(`DELETE FROM tasks_schema_migration;
+      ALTER TABLE tasks DROP COLUMN archived_at;
       ALTER TABLE automations DROP COLUMN model_selection;
       ALTER TABLE automations DROP COLUMN scheduled_run_count;
       INSERT INTO automations(automation_id,cron_expr,prompt,workspace_key,workspace_path,created_at,updated_at,model,provider,run_count)
@@ -224,6 +225,7 @@ describe("DB109 App 库统一迁移", () => {
     try {
       runTasksDatabaseMigrations(db);
       db.exec(`DELETE FROM tasks_schema_migration;
+        ALTER TABLE tasks DROP COLUMN archived_at;
         INSERT INTO automations(automation_id,cron_expr,prompt,workspace_key,workspace_path,created_at,updated_at,model)
         VALUES('old','* * * * *','正文','ws','/ws',1,2,'proxy/model');
         CREATE TABLE migration_probe(value INTEGER);
@@ -258,8 +260,7 @@ describe("DB109 App 库统一迁移", () => {
       Atomics.store(new Int32Array(gate), 0, 1);
       Atomics.notify(new Int32Array(gate), 0);
       expect(await Promise.all(exits)).toEqual([[0], [0]]);
-      expect(db.prepare("SELECT * FROM tasks_schema_migration").all()).toHaveLength(5);
-      expect(db.prepare("SELECT * FROM migration_probe").all()).toHaveLength(1);
+      expect(db.prepare("SELECT * FROM tasks_schema_migration").all()).toHaveLength(6);      expect(db.prepare("SELECT * FROM migration_probe").all()).toHaveLength(1);
       expect(db.prepare("PRAGMA integrity_check").get()?.integrity_check).toBe("ok");
     } finally {
       await Promise.all(workers.map((worker) => worker.terminate()));

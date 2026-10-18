@@ -319,6 +319,8 @@ describe("AutomationRepo 调度状态机", () => {
 
     const db = new DatabaseSync(dbPath);
     db.exec("ALTER TABLE automations DROP COLUMN scheduled_run_count");
+    // 旧库模拟必须连同 0005 的列一起回退，否则重放迁移会在 archived_at 上重复加列。
+    db.exec("ALTER TABLE tasks DROP COLUMN archived_at");
     db.exec("DELETE FROM tasks_schema_migration");
     db.close();
 
