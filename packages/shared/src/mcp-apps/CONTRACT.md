@@ -14,5 +14,6 @@
 - `widgetState` 是 ZCode 扩展：初值经 hostContext 的 `zcode/widgetState` 键随握手下发，页面经 `ui/set-widget-state { widgetState }` 交给宿主 renderer 内存保存（不持久化、无可见性参数；模型可见信息一律走 `ui/update-model-context`）。
 - `_meta.ui.surface` 与清单 surface id 共用字符集 `^[A-Za-z0-9][A-Za-z0-9_.-]*$`、≤ 128 字符，非法即丢弃。
 - 页面发起的 `resources/read` 边界常量在这里：`MCP_APPS_UI_READ_RESOURCE_MAX_BYTES`（8 MiB）与 `MCP_APPS_UI_READ_RESOURCE_MIME_ALLOWLIST`（以 `/` 结尾为前缀匹配，忽略参数与大小写）；执行方是 agent 的 mcp-ui。
+- 常见文档、图片、音视频、归档和字体按明确 MIME 条目接纳，不新增大类前缀；未知 MIME 与缺失 MIME 的 blob 仍拒绝。范围与回归要求见 [资源 MIME spec](../../../../docs/mcp-apps-resource-mime-spec.md)。
 
 Gen UI 复用沙箱登记载荷，显式 `contentKind: "gen-ui"`，pluginId/serverName 留空且不允许权限声明；普通 MCP App 仍必须提供原来的插件与 server 归属。Gen UI 的页面业务 schema 独立位于 `@zcode/shared/gen-ui`。

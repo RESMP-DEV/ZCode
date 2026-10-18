@@ -116,7 +116,7 @@ function toModelAutomation(automation: CronAutomation): CronAutomation {
   };
 }
 
-const cronCreateHandler: ToolHandler = async (input, context) => {
+export const cronCreateHandler: ToolHandler = async (input, context) => {
   assertNotAutomationTurn(context, "CronCreate");
   const parsed = CronCreateInputSchema.parse(input) as CronCreateInput;
   assertAutomationPort(context, "CronCreate");
@@ -133,7 +133,7 @@ const cronCreateHandler: ToolHandler = async (input, context) => {
   } satisfies CronCreateOutput;
 };
 
-const cronListHandler: ToolHandler = async (input, context) => {
+export const cronListHandler: ToolHandler = async (input, context) => {
   CronListInputSchema.parse(input);
   assertAutomationPort(context, "CronList");
 
@@ -151,7 +151,7 @@ const cronListHandler: ToolHandler = async (input, context) => {
   } satisfies CronListOutput;
 };
 
-const cronUpdateHandler: ToolHandler = async (input, context) => {
+export const cronUpdateHandler: ToolHandler = async (input, context) => {
   assertNotAutomationTurn(context, "CronUpdate");
   const parsed = CronUpdateInputSchema.parse(input) as CronUpdateInput;
   assertAutomationPort(context, "CronUpdate");
@@ -163,7 +163,7 @@ const cronUpdateHandler: ToolHandler = async (input, context) => {
   } satisfies CronUpdateOutput;
 };
 
-const cronDeleteHandler: ToolHandler = async (input, context) => {
+export const cronDeleteHandler: ToolHandler = async (input, context) => {
   const parsed = CronDeleteInputSchema.parse(input) as CronDeleteInput;
   assertCronDeleteAllowed(context, parsed.id);
   assertAutomationPort(context, "CronDelete");
@@ -239,7 +239,6 @@ export const cronCreateToolEntry: ToolEntry = {
       "Do not include workspace paths or identities in the input; the current session workspace is used.",
       "Always set title and preserve the user's natural-language schedule phrase verbatim in it. The title may be concise, but must not omit timing such as '每20分钟', '每天早上9点', or 'every Friday'.",
       "Write prompt as a complete instruction that can run later without relying on unstated conversation context.",
-      "For recurring work with a permanent finish line (for example driving a PR through reviews until it merges), instruct the scheduled run to delete this automation itself with CronDelete once the work is permanently finished. Self-deleting the triggering automation is the only automation management a scheduled run may perform, and it prevents the loop from firing no-op turns forever.",
       "Write the final work directly in prompt. Never ask the scheduled run to create, schedule, or configure another automation, and never ask it to call CronCreate.",
     ],
     readOnly: false,

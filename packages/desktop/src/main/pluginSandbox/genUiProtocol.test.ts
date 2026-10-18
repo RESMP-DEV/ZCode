@@ -76,6 +76,14 @@ describe("Gen UI resource composition", () => {
     expect(html.indexOf("preset styles")).toBeLessThan(html.indexOf("/__zcode__/gen-ui.js"));
     expect(html.indexOf("/__zcode__/gen-ui.js")).toBeLessThan(html.indexOf("author()"));
     expect(html.indexOf("author()")).toBeLessThan(html.indexOf("innerKit()"));
+    expect(html.indexOf("author()")).toBeLessThan(
+      html.indexOf('id="zcode-gen-ui-document-scrollbar"'),
+    );
+    expect(html).toContain("html,body{scrollbar-width:none!important}");
+    expect(html).toContain(
+      "html::-webkit-scrollbar,body::-webkit-scrollbar{display:none!important}",
+    );
+    expect(html).not.toContain("overflow-y:hidden!important");
     expect(html).not.toContain("__INLINE_VISUALIZATION_FRAGMENT__");
     expect(readAsset.mock.calls.map(([path]) => basename(path)).sort()).toEqual([
       "visualize.css",
@@ -97,6 +105,7 @@ describe("Gen UI resource composition", () => {
     const html = await (await request()).text();
     expect(html).toContain("/__zcode__/alias.js");
     expect(html).not.toContain("innerKit()");
+    expect(html).not.toContain("zcode-gen-ui-document-scrollbar");
     expect(readAsset).not.toHaveBeenCalled();
   });
   it("returns an explicit failure when the packaged runtime is missing", async () => {

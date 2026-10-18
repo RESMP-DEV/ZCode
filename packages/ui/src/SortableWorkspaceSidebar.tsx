@@ -26,6 +26,8 @@ export const SortableWorkspaceSidebarItem = memo(function SortableWorkspaceSideb
   taskListHasUnread = false,
   taskListHasPendingAction = false,
   taskListLiveWorkflowCount = 0,
+  mobileActiveTaskKey,
+  isWebRemoteControl = false,
   workspaceKey,
   onShowMoreWorkspaceTasks,
   reconnectingRemoteWorkspaceKeys,
@@ -53,6 +55,8 @@ export const SortableWorkspaceSidebarItem = memo(function SortableWorkspaceSideb
   /** 组内存在等用户处理的阻塞交互（permission/input）；收起时显示琥珀色点。 */
   taskListHasPendingAction?: boolean;
   taskListLiveWorkflowCount?: number;
+  mobileActiveTaskKey?: string | null;
+  isWebRemoteControl?: boolean;
   workspaceKey: string;
   onShowMoreWorkspaceTasks: (workspaceKey: string) => void;
   reconnectingRemoteWorkspaceKeys: string[];
@@ -123,6 +127,8 @@ export const SortableWorkspaceSidebarItem = memo(function SortableWorkspaceSideb
       taskListHasUnread={taskListHasUnread}
       taskListHasPendingAction={taskListHasPendingAction}
       taskListLiveWorkflowCount={taskListLiveWorkflowCount}
+      mobileActiveTaskKey={mobileActiveTaskKey}
+      isWebRemoteControl={isWebRemoteControl}
       onShowMoreTasks={handleShowMoreTasks}
       reconnectingRemoteWorkspaceKeys={reconnectingRemoteWorkspaceKeys}
       remoteWorkspaceErrorByWorkspaceKey={remoteWorkspaceErrorByWorkspaceKey}

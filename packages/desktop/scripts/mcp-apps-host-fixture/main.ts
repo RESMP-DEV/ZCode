@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { legacyStorage, checkClearing } from "./storage-checks.js";
+import { checkPagePointerInput } from "./pointer-input.js";
 import {
   installPluginSandboxHost,
   PLUGIN_SANDBOX_PRIVILEGED_SCHEME,
@@ -188,6 +189,15 @@ app
       ),
       { counter: "1", input: "retained", scroll: 123, starts: 1 },
     );
+    for (const position of ["inline", "sidebar", "preview"]) {
+      await win.webContents.executeJavaScript(`window.switchPage(${position === "sidebar"})`);
+      if (position === "preview")
+        await win.webContents.executeJavaScript("window.previewPage(true)");
+      await checkPagePointerInput(win, guest);
+      if (position === "preview")
+        await win.webContents.executeJavaScript("window.previewPage(false)");
+      assert.equal(guest.isDestroyed(), false);
+    }
     await writeFile(
       join(root!, `switch-${mode}.png`),
       (await win.webContents.capturePage()).toPNG(),

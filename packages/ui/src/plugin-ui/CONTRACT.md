@@ -3,6 +3,7 @@
 Renderer 模块，层序 `domain → app → adapters → components`；公开入口为 `index.ts`。
 
 - 窗口唯一页面管理器统一管理 MCP 与 Gen UI 的容量和回收；`createPage` 持有 MCP controller、AppBridge、独立 workspace/session lease、通知 feed 和内存快照。卡片、侧栏只登记锚点。内联页面位于滚动容器内部，侧栏单独定位；原子移动保留同一 guest，不重读资源、不重新握手。解绑必须在 DOM 卸载前同步移入隐藏承载区。
+- 页面承载容器只负责布局，不接收鼠标命中；webview 显式接收点击。webview 释放后的空容器不能遮挡宿主重载按钮，内联、侧栏与预览共用此规则。
 - 逻辑键包含 workspace identity（本地 fallback 为路径）、session、plugin、server、resource 和逻辑视图。surface 显式共享；普通工具只按明确的 widgetSessionId 与相同权限范围共享，否则按 toolCallId 隔离。禁止同回合同资源推断合并。
 - UI 不接触插件 HTML、数据库和连接凭据。经 `IPluginUiBridgeService` 获取句柄，平台端口只校验 sandboxId/initId；请求与 live 通知绑定 Agent runtimeId/generation/token/appIdentity。
 - 官方 ext-apps 2.0.0 每活页面一个 AppBridge；握手期限 15 秒。保留 `experimental["zcode/…"]` 的 widgetState、resourceSubscribe、surface、CSP 扩展；不模拟完整 OpenAI API。

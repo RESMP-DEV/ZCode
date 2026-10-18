@@ -1,5 +1,6 @@
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
+import { FileSummaryFixture } from "./file-summary.js";
 import { GenUiMessageResponse } from "../../../ui/src/gen-ui/components/GenUiMessageResponse.js";
 import { ServiceProvider } from "../../../ui/src/hooks/useServices.js";
 import { PlatformProvider } from "../../../ui/src/hooks/usePlatform.js";
@@ -16,6 +17,10 @@ const states = new Set<(event: GenUiStateChange) => void>();
 let reads = 0,
   preparations = 0;
 const messages: unknown[] = [];
+const opened: string[] = [];
+let gestureGate: ReturnType<typeof Promise.withResolvers<void>> | undefined;
+let gesturePending = false;
+let rejectOpen = false;
 const taskListeners = new Set<(event: unknown) => void>();
 let activeSession = "fixture";
 const deadlines = new Set<() => void>();
@@ -68,6 +73,11 @@ void (async () => {
     },
   } as unknown as IServiceAccessor;
   const remote = {
+    fileService: {
+      async checkFilesExist({ paths }: { paths: string[] }) {
+        return paths.map((path) => ({ path, exists: true }));
+      },
+    },
     genUiService: {
       readDocument(input: unknown) {
         reads++;
@@ -86,12 +96,22 @@ void (async () => {
     },
   });
   const platform = {
+    openExternal(url: string) {
+      if (rejectOpen) throw new Error("Fixture opener failed");
+      opened.push(url);
+    },
     pluginSandbox: {
       supportsRetainedMove: window.zcodePluginSandbox?.supportsRetainedMove,
       copyImage: (request) => window.zcodePluginSandbox!.copyImage!(request),
       getOwnerWebContentsId: () => harness.owner(),
       disposeSandbox: (id: string, init: number) => harness.dispose(id, init),
-      consumeUserGesture: () => harness.gesture(),
+      async consumeUserGesture(sandboxId: string) {
+        const allowed = await window.zcodePluginSandbox!.consumeUserGesture(sandboxId);
+        gesturePending = true;
+        await gestureGate?.promise;
+        gesturePending = false;
+        return allowed;
+      },
       onPorts(handler: (event: PluginSandboxPortsEvent) => void) {
         ports.add(handler);
         return () => {
@@ -103,6 +123,8 @@ void (async () => {
   const reactRoot = createRoot(document.getElementById("root")!);
   // 回归真实模型输出：从正文解析进入卡片，直接挂 GenUiCard 无法发现 directive 未识别。
   let mode: "normal" | "wide" = "wide";
+  let summaryMode: "only" | "mixed" | "ordinary" | null = null;
+  let compact = false;
   const renderReply = (phase: "streaming" | "complete" | "hidden") =>
     reactRoot.render(
       <ZCodeIntlProvider initialLocale="en-US">
@@ -124,6 +146,15 @@ void (async () => {
                       {`Before view\n\n::visualize${JSON.stringify({ path: config.paths[activeSession], title: "Gen UI test", ...(mode === "wide" ? { mode } : {}) })}\n\nAfter view`}
                     </GenUiMessageResponse>
                   )}
+                  {summaryMode && (
+                    <FileSummaryFixture
+                      key={summaryMode}
+                      path={config.path}
+                      root={config.root}
+                      mode={summaryMode}
+                      compact={compact}
+                    />
+                  )}
                   <div style={{ height: 1000 }} />
                 </div>
               </div>
@@ -134,6 +165,21 @@ void (async () => {
     );
   flushSync(() => renderReply("streaming"));
   Object.assign(window, {
+    showFileSummary: (value: typeof summaryMode, mobile = false) => {
+      summaryMode = value;
+      compact = mobile;
+      flushSync(() => renderReply("complete"));
+    },
+    holdGesture: () => {
+      gestureGate = Promise.withResolvers<void>();
+    },
+    releaseGesture: () => {
+      gestureGate?.resolve();
+      gestureGate = undefined;
+    },
+    rejectExternalOpen: (value: boolean) => {
+      rejectOpen = value;
+    },
     setInlineMode: (value: "normal" | "wide") => {
       mode = value;
       flushSync(() => renderReply("complete"));
@@ -156,6 +202,8 @@ void (async () => {
       reads,
       preparations,
       messages,
+      opened,
+      gesturePending,
       ports: ports.size,
       states: states.size,
       tasks: taskListeners.size,

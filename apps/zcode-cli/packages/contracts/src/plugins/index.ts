@@ -5,6 +5,7 @@ import type { SkillRoot } from "../skills/index.js";
 import type { ExecutionContext, TraceContext } from "../tracing/tracer.js";
 
 export const ZCODE_OFFICIAL_PLUGIN_MARKETPLACE = "zcode-plugins-official";
+export const CLAUDE_OFFICIAL_PLUGIN_MARKETPLACE = "claude-plugins-official";
 export const ZCODE_INLINE_PLUGIN_MARKETPLACE = "inline";
 export const ZCODE_PLUGIN_HOST_COMMAND = "__zcode-plugin-host";
 /**
@@ -20,7 +21,7 @@ export const ZCODE_PLUGIN_HOST_COMMAND = "__zcode-plugin-host";
 export const ZCODE_DWF_CHILD_COMMAND = "__zcode-dwf-child";
 
 export function isOfficialMarketplaceId(id: string): boolean {
-  return id === ZCODE_OFFICIAL_PLUGIN_MARKETPLACE;
+  return id === ZCODE_OFFICIAL_PLUGIN_MARKETPLACE || id === CLAUDE_OFFICIAL_PLUGIN_MARKETPLACE;
 }
 
 export type PluginSource = "official" | "inline" | "cache";

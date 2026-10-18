@@ -8,8 +8,8 @@ import type {
   ContextSourcePort,
   DynamicWorkflowRunArtifact,
   DynamicWorkflowRunArtifactBytes,
-  DynamicWorkflowRunArtifactItem,
-  DynamicWorkflowRunEvent,
+  DynamicWorkflowRunArtifactItemsResult,
+  DynamicWorkflowRunEventsResult,
   DynamicWorkflowRunProgressPayload,
   DynamicWorkflowRunResumeResult,
   DynamicWorkflowRunSessionSummary,
@@ -37,11 +37,13 @@ import type {
   ModelToolCall,
   ModelUsage,
   OffPeakPort,
+  TopicResourcePort,
   PdfDocumentPort,
   PermissionBrokerPort,
   PluginLoadOutcome,
   PluginMetadata,
   PluginReferenceCatalog,
+  ProviderEndpointRoutingPort,
   QueryId,
   SessionEvent,
   SessionEventSink,
@@ -92,6 +94,7 @@ import type {
 } from "@zcode/core";
 import type {
   BackgroundBashOutputResult,
+  SubagentRuntimeConfig,
   ZCodeModelOption,
   ZCodeToolExecResource,
 } from "@zcode/shared";
@@ -143,6 +146,11 @@ export interface ZCodeAppOptions {
    * 普通 CLI 不传，继续使用 cli 默认值。
    */
   sourceTitle?: ModelProviderSourceTitle;
+  /** 本地 Host 源文档读取；无此能力时保持启动期配置。 */
+  readSubagentRuntimeConfig?: (input: {
+    signal: AbortSignal;
+    traceContext: TraceContext;
+  }) => Promise<SubagentRuntimeConfig>;
   eventStore?: SessionEventStorePort;
   sessionStore?: SessionStorePort;
   sessionMailboxPort?: SessionMailboxPort;
@@ -156,6 +164,7 @@ export interface ZCodeAppOptions {
   modelIoFullRetentionEnabled?: boolean;
   /** 同进程嵌入宿主可注入完整的 borrowed 进程级 Owner；Endpoint 配置不得覆盖它。 */
   telemetryOwner?: AgentTelemetryRuntimeOwner;
+  providerEndpointRoutingPort?: ProviderEndpointRoutingPort;
   /**
    * provider runtime headers 端口：主 runtime 每次调用报自己的会话；child runtime 一律向父
    * runtime 取派生实例。
@@ -177,6 +186,8 @@ export interface ZCodeAppOptions {
   pdfDocumentPort?: PdfDocumentPort;
   artifactStore?: ToolArtifactStorePort;
   contextSourcePort?: ContextSourcePort;
+  /** 仅协议宿主注入；普通 CLI 不加载内置 visualize 技能。 */
+  includeVisualize?: boolean;
   skillPort?: SkillPort;
   mcpPort?: McpPort;
   /** 由宿主提供 per-app lease；产出的端口归 app 所有。 */
@@ -195,6 +206,7 @@ export interface ZCodeAppOptions {
   offPeakPort?: OffPeakPort;
   /** 会话清理端口；host 经协议提供 plan/execute（备份 → tombstone）。 */
   sessionSweepPort?: SessionSweepPort;
+  topicResourcePort?: TopicResourcePort;
   /** 首次真实用户执行或 cold-resume fallback 时解析一次，之后由 app 生命周期缓存。 */
   resolveInitialBashShellSelection?: () => Promise<ExecutionShellSelection | undefined>;
   /** Trusted embedder policy; workspace/project files cannot populate this field. */
@@ -254,6 +266,8 @@ export type SendInputOptions = SubmitPromptOptions & {
   delivery?: InputDelivery;
   /** sendText 的产品 guide/queue 意图；是否 busy 仍由 Core admission 判断。 */
   queueDelivery?: "guide" | "queue";
+  /** Highspeed 等必须延后到独立 turn 的输入，即使 admission 时已转为空闲也保持排队。 */
+  requireQueue?: boolean;
   requireIdle?: boolean;
   expectedTurnId?: TurnId;
   commandKind?: "sendText" | "sendGoalCommand" | "compact";
@@ -490,7 +504,8 @@ export interface ZCodeApp {
     runId: string;
     afterSequence?: number;
     limit?: number;
-  }): Promise<DynamicWorkflowRunEvent[]>;
+    maxBytes?: number;
+  }): Promise<DynamicWorkflowRunEventsResult>;
   /**
    * 恢复一个 dwf run。可选能力，缺席条件同
    * {@link listDynamicWorkflowRunEvents}。成功路径除了 port.resume 之外还负责**追踪重臂**
@@ -555,7 +570,7 @@ export interface ZCodeApp {
   }): Promise<readonly DynamicWorkflowRunArtifact[] | undefined>;
   /**
    * 喂给某个预置看板的 `report` 条目分页（cursor = journal sequence，严格大于）。
-   * `limit` 由网关钳好再传下来，这里**精确**兑现——调用方传「上限 + 1」探测 hasMore。
+   * `limit` 与 `maxBytes` 由网关定好再传下来，这里**精确**兑现；`hasMore` 由存储层判定。
    * 缺席条件同 {@link listDynamicWorkflowRunArtifacts}。
    */
   listDynamicWorkflowRunArtifactItems?(input: {
@@ -563,7 +578,9 @@ export interface ZCodeApp {
     artifactId: string;
     afterSequence?: number;
     limit: number;
-  }): Promise<readonly DynamicWorkflowRunArtifactItem[]>;
+    maxBytes: number;
+    fields?: readonly string[];
+  }): Promise<DynamicWorkflowRunArtifactItemsResult>;
   /**
    * 读一个产物版本的**全部**字节；分块归网关（≤ 512 KiB 一块）。授权链在端口实现侧：
    * 该 run 必须属于本会话 ∧ journal 里有 `(artifactId, version)` 的 completed 行，然后才拿
@@ -823,6 +840,7 @@ export interface RunZCodeProtocolAgentOptions {
   input?: NodeJS.ReadableStream;
   output?: NodeJS.WritableStream;
   presentationSurface?: PresentationSurface;
+  providerEndpointRoutingPort?: ProviderEndpointRoutingPort;
   version?: string;
 }
 

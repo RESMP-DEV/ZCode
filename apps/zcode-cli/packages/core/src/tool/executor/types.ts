@@ -18,13 +18,14 @@ import type {
   Model,
   ModelCatalogPort,
   OffPeakPort,
+  SessionSweepPort,
+  TopicResourcePort,
   PdfDocumentPort,
   PermissionBrokerPort,
   SessionEvent,
   SessionId,
   SessionModePort,
   SessionStorePort,
-  SessionSweepPort,
   SkillPort,
   SubagentPort,
   SubagentRunOptions,
@@ -108,6 +109,7 @@ export interface ToolExecutorOptions {
   automationPort?: AutomationPort;
   offPeakPort?: OffPeakPort;
   sessionSweepPort?: SessionSweepPort;
+  topicResourcePort?: TopicResourcePort;
   sessionStore?: SessionStorePort;
   sessionModePort?: SessionModePort;
   workflowPort?: WorkflowPort;
@@ -224,6 +226,7 @@ export interface ToolExecutorDeps {
   automationPort?: AutomationPort;
   offPeakPort?: OffPeakPort;
   sessionSweepPort?: SessionSweepPort;
+  topicResourcePort?: TopicResourcePort;
   sessionStore?: SessionStorePort;
   sessionModePort?: SessionModePort;
   workflowPort?: WorkflowPort;

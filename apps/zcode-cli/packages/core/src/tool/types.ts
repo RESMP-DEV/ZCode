@@ -4,6 +4,7 @@ import type { McpToolUiDescriptor } from "@zcode/shared/mcp-apps";
 // ============================================================
 
 import type {
+  CollaborationMode,
   AutomationPort,
   BrowserControlPort,
   CoordinatorResponsePort,
@@ -22,6 +23,8 @@ import type {
   ModelMessageContent,
   ModelToolSideEffectScope,
   OffPeakPort,
+  SessionSweepPort,
+  TopicResourcePort,
   PdfDocumentPort,
   PermissionBrokerReasonSource,
   PermissionCapabilityGroup,
@@ -34,7 +37,6 @@ import type {
   SessionId,
   SessionModePort,
   SessionStorePort,
-  SessionSweepPort,
   SkillPort,
   SkillTelemetryMetadata,
   SubagentPort,
@@ -175,6 +177,7 @@ export interface ToolExecutionContext {
   offPeakPort?: OffPeakPort;
   /** 会话清理端口；host 经协议提供 plan/execute（备份 → tombstone）。 */
   sessionSweepPort?: SessionSweepPort;
+  topicResourcePort?: TopicResourcePort;
   sessionStore?: SessionStorePort;
   sessionModePort?: SessionModePort;
   workflowPort?: WorkflowPort;
@@ -203,6 +206,11 @@ export interface ToolExecutionContext {
   providerVisibleToolNames?: readonly string[];
   sessionId: SessionId;
   turnId?: TurnId;
+  /**
+   * 用户在确认窗里调整过、且已应用到本次入参的字段（{@link ToolEntry.applyInputAdjustments} 的
+   * `applied`）。handler 据它告诉模型「实际跑的不是你传的那个值」；缺席即没有调整。
+   */
+  inputAdjustments?: Readonly<Record<string, unknown>>;
 }
 
 export interface ToolEmbeddedSearchContext {
@@ -267,12 +275,20 @@ export interface ToolInputResolutionContext {
   /**
    * 「这个会话此刻加载着某个技能吗」的探针（handlers/workflow-skill-gate.ts）。由 runtime 用
    * provider 可见历史回答（agent/loaded-skills.ts），所以 compaction 之后答案随历史一起变回
-   * 否。缺席 = 本会话没有 Skill 工具或调用方不参与，门不生效。
+   * 否。缺席 = 本会话没有 Skill 工具或调用方不参与（单元测试直接造的 context），门不生效。
    */
   hasLoadedSkill?: (skillName: string) => boolean;
 }
 
 export type ToolInputResolutionResult = { result: true; input: unknown } | ToolHandlerFailure;
+
+/**
+ * {@link ToolEntry.applyInputAdjustments} 的结果：调整后的入参，与**实际生效**的那部分调整
+ * （键同入参字段名；与入参原值相同的改动不算）。`applied` 缺席即什么都没变。
+ */
+export type ToolInputAdjustmentResult =
+  | { result: true; input: unknown; applied?: Readonly<Record<string, unknown>> }
+  | ToolHandlerFailure;
 
 export type ToolHandler<TInput = unknown, TOutput = unknown> = (
   input: TInput,
@@ -338,6 +354,18 @@ export interface ToolEntry extends ToolContractDeclaration {
     input: unknown,
     context: ToolInputResolutionContext,
   ) => Promise<ToolInputResolutionResult> | ToolInputResolutionResult;
+  /**
+   * 应用用户在确认窗里对入参做的调整（docs/dynamic-workflow/launch.md「Adjusting the settings in
+   * the window」）。executor 在授权之后、handler 之前调用，`adjustments` 是 broker 结果的
+   * `inputAdjustments`。返回的入参必须仍是 `resolveInput` 产出的那种形状——handler 不为调整另开
+   * 一条路；失败即工具失败，handler 不跑。同步：只读上下文里已有的端口，不做 I/O。
+   * 不声明的工具忽略一切调整。
+   */
+  applyInputAdjustments?: (
+    input: unknown,
+    adjustments: Readonly<Record<string, unknown>>,
+    context: ToolInputResolutionContext,
+  ) => ToolInputAdjustmentResult;
   formatModelContent?: (output: unknown) => ModelMessageContent;
   formatPersistedModelContent?: (
     input: ToolPersistedModelContentInput,
@@ -356,21 +384,13 @@ export interface ToolEntry extends ToolContractDeclaration {
   ) => ToolPermissionRulePolicy | undefined;
   /**
    * Last word on an `ask` decision, owned by the tool. Runs after the permission service
-   * has already decided to ask, so it can only narrow the ask to a pass (`proceed`), deny
-   * it outright (`deny`, with a reason), or enrich it with a preview — it can never turn
-   * an allow into an ask. `deny` exists for contexts where the ask can never be answered
-   * (e.g. a scheduled automation run has no permission responder; an unanswered ask would
-   * stall the tool call indefinitely).
+   * has already decided to ask, so it can only narrow the ask to a pass (`proceed`) or
+   * enrich it with a preview — it can never turn an allow into an ask.
    *
    * Synchronous like the other permission hooks: it inspects the input the executor
    * already holds and must not perform I/O on the approval path. A tool that needs to
    * read the world before it can build a preview belongs in {@link resolveInput}, which
    * runs earlier, is async, and whose result the whole downstream chain shares.
-   *
-   * `turnScope` carries the current turn's scheduled-automation identity so a tool can
-   * narrow its own ask for exactly the turn-scoped self-cleanup case (e.g. CronDelete of
-   * the automation that triggered this run); it is positive-identity only and undefined
-   * on ordinary interactive turns.
    */
   prepareApproval?: (input: unknown, turnScope: ToolApprovalTurnScope) => ToolApprovalGate;
   inputSchema: JsonSchema;
@@ -411,6 +431,7 @@ export interface ToolPersistedModelContentInput {
 }
 
 export interface ToolRuntimePermissionCapability {
+  userApprovalRule?: string;
   allowedInPlanMode?: boolean;
   destructive?: boolean;
   needsApproval?: boolean;
@@ -422,6 +443,8 @@ export interface ToolRuntimePermissionCapability {
 }
 
 export interface ToolRuntimePermissionCapabilityContext {
+  mode?: CollaborationMode;
+  bashShellSelection?: ExecutionShellSelection;
   runtimeScope?: ToolRuntimeScope;
   workingDirectory?: string;
   workspaceRoot?: string;

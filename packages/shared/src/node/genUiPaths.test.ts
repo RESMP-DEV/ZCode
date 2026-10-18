@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { join, resolve } from "node:path";
+import { dirname, join, parse, resolve } from "node:path";
 import { getGenUiOutputDirectory } from "./genUiPaths.js";
 
 const scope = { workspacePath: resolve("workspace"), sessionId: "session" };
@@ -21,9 +21,21 @@ describe("Gen UI output directory", () => {
       getGenUiOutputDirectory(root, { ...remote, workspaceIdentity: "ssh:second:/workspace" }),
     ).not.toBe(getGenUiOutputDirectory(root, remote));
   });
-  it("rejects relative roots and output inside the workspace", () => {
+  it.each([undefined, "ssh:executor:/home/dev"])(
+    "allows the fixed output root within or equal to the workspace (%s)",
+    (workspaceIdentity) => {
+      for (const outputRoot of [scope.workspacePath, join(scope.workspacePath, ".zcode")]) {
+        const directory = getGenUiOutputDirectory(outputRoot, { ...scope, workspaceIdentity });
+        expect(dirname(directory)).toBe(outputRoot);
+        expect(directory).not.toBe(outputRoot);
+      }
+      expect(
+        dirname(getGenUiOutputDirectory(root, { ...scope, workspacePath: parse(root).root })),
+      ).toBe(root);
+    },
+  );
+  it("rejects relative roots and workspace paths", () => {
     expect(() => getGenUiOutputDirectory("relative", scope)).toThrow();
-    expect(() => getGenUiOutputDirectory(scope.workspacePath, scope)).toThrow();
-    expect(() => getGenUiOutputDirectory(join(scope.workspacePath, ".zcode"), scope)).toThrow();
+    expect(() => getGenUiOutputDirectory(root, { ...scope, workspacePath: "relative" })).toThrow();
   });
 });

@@ -130,6 +130,7 @@ await Promise.all([
   bundle(join(fixture, "sampling-main.ts"), "sampling-main.cjs", "node"),
   bundle(join(fixture, "managed-empty-main.ts"), "managed-empty-main.cjs", "node"),
   bundle(join(fixture, "managed-main.ts"), "managed-main.cjs", "node"),
+  bundle(join(fixture, "interaction-main.ts"), "interaction-main.cjs", "node"),
   bundle(join(fixture, "rows-main.ts"), "rows-main.cjs", "node"),
   bundle(join(fixture, "managed-renderer.tsx"), "managed.js"),
   bundle(join(fixture, "retention-main.ts"), "retention-main.cjs", "node"),
@@ -176,7 +177,7 @@ const modes = process.argv.includes("--showcase-only")
     : process.argv.includes("--rows-only")
       ? ["rows"]
       : process.argv.includes("--managed-only")
-        ? ["managed", "managed-empty"]
+        ? ["interaction", "managed", "managed-empty"]
         : process.argv.includes("--chain-only")
           ? ["chain"]
           : process.argv.includes("--retention-only")
@@ -188,6 +189,7 @@ const modes = process.argv.includes("--showcase-only")
                   "read",
                   "empty",
                   "chain",
+                  "interaction",
                   "managed",
                   "managed-empty",
                   "retention",
@@ -201,6 +203,7 @@ for (const mode of modes) {
     const child = spawn(
       electron,
       mode === "chain" ||
+        mode === "interaction" ||
         mode === "managed" ||
         mode === "rows" ||
         mode === "sampling" ||
@@ -236,6 +239,9 @@ process.stdout.write(
   JSON.stringify(
     {
       output,
+      interaction: modes.includes("interaction")
+        ? JSON.parse(await readFile(join(output, "interaction-results.json"), "utf8"))
+        : undefined,
       showcase: modes.includes("showcase")
         ? JSON.parse(await readFile(join(output, "showcase-results.json"), "utf8"))
         : undefined,
