@@ -22,6 +22,7 @@ import {
   type SessionSweepPort,
   type ToolPermissionSpec,
 } from "@zcode/contracts";
+import { ZCODE_HOST_TOOL_CAPABILITY_SESSION_SWEEP } from "@zcode/shared";
 import type { ToolEntry, ToolExecutionContext, ToolHandler } from "../types.js";
 
 const SESSION_SWEEP_TOOL_TIMEOUT_MS = 120_000;
@@ -133,6 +134,7 @@ export const sessionSweepPlanToolEntry: ToolEntry = {
     riskLevel: "low",
     needsApproval: false,
   },
+  requiredCapabilities: [ZCODE_HOST_TOOL_CAPABILITY_SESSION_SWEEP],
   handler: sessionSweepPlanHandler,
   inputSchema: SessionSweepPlanInputJsonSchema,
   outputSchema: SessionSweepPlanOutputJsonSchema,
@@ -175,6 +177,7 @@ export const sessionSweepExecuteToolEntry: ToolEntry = {
     riskLevel: "medium",
     needsApproval: false,
   },
+  requiredCapabilities: [ZCODE_HOST_TOOL_CAPABILITY_SESSION_SWEEP],
   handler: sessionSweepExecuteHandler,
   inputSchema: SessionSweepExecuteInputJsonSchema,
   outputSchema: SessionSweepExecuteOutputJsonSchema,
@@ -229,6 +232,7 @@ export const sessionSweepSetPinnedToolEntry: ToolEntry = {
     riskLevel: "low",
     needsApproval: false,
   },
+  requiredCapabilities: [ZCODE_HOST_TOOL_CAPABILITY_SESSION_SWEEP],
   handler: sessionSweepSetPinnedHandler,
   inputSchema: SessionSweepSetPinnedInputJsonSchema,
   outputSchema: SessionSweepSetPinnedOutputJsonSchema,

@@ -200,6 +200,12 @@ export interface AgentRuntimeConfig {
   embeddedSearchBackend?: EmbeddedSearchBackend;
   /** 根 Session runtime 创建时固定；false 只关闭 Bash 的 bfs/ugrep prelude。 */
   nativeSearchEnhancementsEnabled?: boolean;
+  /**
+   * Trusted, host-resolved machine capability keys. Built-in tools declaring
+   * `requiredCapabilities` are filtered at registration; the field is absent
+   * by design for old hosts so gated tools fail closed.
+   */
+  hostToolCapabilities?: readonly string[];
   memory?: MemoryRuntimeConfig;
   /** 历史恢复允许未绑定；只有完整选择才能创建本轮执行 Model。 */
   modelSelection?: ModelSelection;

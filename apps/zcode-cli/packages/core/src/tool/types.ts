@@ -304,6 +304,13 @@ export interface ToolEntry extends ToolContractDeclaration {
   retainExecution?: (callId: string) => { signal: AbortSignal; release(): void };
   aliases?: readonly string[];
   /**
+   * Machine-readable host capability keys required before registration. Unlike
+   * `capability` (model-facing prose), these keys are supplied by a trusted host
+   * and are intersected at catalog construction; an agent allowlist cannot
+   * resurrect a missing capability.
+   */
+  requiredCapabilities?: readonly string[];
+  /**
    * Host-issued atomicity policy for model content. Only an authority-verified
    * registration path may set this; executor code must never infer it from a
    * tool name or from model-visible content.

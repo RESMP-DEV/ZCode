@@ -1907,6 +1907,17 @@ export type ZCodeSessionSubagentsResult = z.infer<typeof zcodeSessionSubagentsRe
 /** 服务端 feature key 的取值域在协议里的 zod 形态（packages/shared/src/dynamic-workflow-feature.ts）。 */
 export const zcodeDynamicWorkflowModeSchema = z.enum(DYNAMIC_WORKFLOW_MODES);
 
+/** Machine-readable host tool capability key; model-facing `capability` prose is not availability. */
+export const ZCODE_HOST_TOOL_CAPABILITY_SESSION_SWEEP = "session-sweep";
+
+export const zcodeHostToolCapabilitiesSchema = z
+  .array(nonEmptyString)
+  .min(1)
+  .max(128)
+  .refine((items) => new Set(items).size === items.length, {
+    message: "Host tool capabilities must be unique",
+  });
+
 export const zcodeSessionCreateParamsSchema = z
   .object({
     sessionId: nonEmptyString.optional(),
@@ -1930,6 +1941,8 @@ export const zcodeSessionCreateParamsSchema = z
     // 灰度 mode 随布尔同行下发（launch.md「On demand: activation」）：`onDemand` 让 CLI 把十个
     // 工具推迟到会话首次 `/workflow` 才注册；缺席 = 按布尔行事（alwaysOn），供旧 Host 配对。
     dynamicWorkflowMode: zcodeDynamicWorkflowModeSchema.optional(),
+    // Host 已实现的可执行能力键；缺席 = fail-closed，工具在 registry 构建前过滤。
+    hostToolCapabilities: zcodeHostToolCapabilitiesSchema.optional(),
   })
   .strict();
 export type ZCodeSessionCreateParams = z.infer<typeof zcodeSessionCreateParamsSchema>;
@@ -1949,6 +1962,8 @@ export const zcodeSessionResumeParamsSchema = z
     // 与 create 同语义；resume 不带会导致冷恢复丢工作流工具簇。
     dynamicWorkflowEnabled: z.boolean().optional(),
     dynamicWorkflowMode: zcodeDynamicWorkflowModeSchema.optional(),
+    // 冷恢复同样必须携带 Host 能力键，否则重建 runtime 会暴露不可执行工具。
+    hostToolCapabilities: zcodeHostToolCapabilitiesSchema.optional(),
   })
   .strict();
 export type ZCodeSessionResumeParams = z.infer<typeof zcodeSessionResumeParamsSchema>;

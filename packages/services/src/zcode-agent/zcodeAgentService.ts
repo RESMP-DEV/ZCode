@@ -43,6 +43,7 @@ import {
   zcodeSubagentsReadRuntimeConfigParamsSchema,
   type SubagentRuntimeConfig,
   ZCODE_SESSION_RUNTIME_PREFERENCES_REQUEST_TIMEOUT_MS,
+  ZCODE_HOST_TOOL_CAPABILITY_SESSION_SWEEP,
   formatLogPrefix,
   resolveWorkspaceKey,
   type TraceId,
@@ -420,7 +421,8 @@ type SessionCreateCompatField =
   | "toolDenylist"
   | "offPeakToolEnabled"
   | "dynamicWorkflowEnabled"
-  | "dynamicWorkflowMode";
+  | "dynamicWorkflowMode"
+  | "hostToolCapabilities";
 type SessionResumeCompatField =
   | "thoughtLevel"
   | "mcpServers"
@@ -428,7 +430,8 @@ type SessionResumeCompatField =
   | "toolDenylist"
   | "offPeakToolEnabled"
   | "dynamicWorkflowEnabled"
-  | "dynamicWorkflowMode";
+  | "dynamicWorkflowMode"
+  | "hostToolCapabilities";
 type SessionSendCompatField =
   | "browserAmbientContext"
   | "automationId"
@@ -452,6 +455,7 @@ const SESSION_CREATE_OPTIONAL_COMPAT_FIELDS = new Set<SessionCreateCompatField>(
   "dynamicWorkflowEnabled",
   // 灰度 mode（launch.md「On demand: activation」）：只认布尔的 CLI 省略它后按 alwaysOn 行事。
   "dynamicWorkflowMode",
+  "hostToolCapabilities",
 ]);
 const SESSION_RESUME_OPTIONAL_COMPAT_FIELDS = new Set<SessionResumeCompatField>([
   "thoughtLevel",
@@ -462,6 +466,7 @@ const SESSION_RESUME_OPTIONAL_COMPAT_FIELDS = new Set<SessionResumeCompatField>(
   "offPeakToolEnabled",
   "dynamicWorkflowEnabled",
   "dynamicWorkflowMode",
+  "hostToolCapabilities",
 ]);
 const SESSION_SEND_OPTIONAL_COMPAT_FIELDS = new Set<SessionSendCompatField>([
   "browserAmbientContext",
@@ -686,6 +691,7 @@ function buildSessionCreateParams(
     offPeakToolEnabled?: boolean;
     dynamicWorkflowEnabled?: boolean;
     dynamicWorkflowMode?: DynamicWorkflowMode;
+    hostToolCapabilities?: readonly string[];
   },
   omittedFields: ReadonlySet<SessionCreateCompatField> = new Set(),
 ) {
@@ -731,6 +737,9 @@ function buildSessionCreateParams(
       ? { dynamicWorkflowEnabled: true }
       : {}),
     ...buildDynamicWorkflowModeField(params, omittedFields),
+    ...(params.hostToolCapabilities?.length && !omittedFields.has("hostToolCapabilities")
+      ? { hostToolCapabilities: [...params.hostToolCapabilities] }
+      : {}),
   };
 }
 
@@ -755,6 +764,7 @@ function buildSessionResumeParams(
     offPeakToolEnabled?: boolean;
     dynamicWorkflowEnabled?: boolean;
     dynamicWorkflowMode?: DynamicWorkflowMode;
+    hostToolCapabilities?: readonly string[];
   },
   omittedFields: ReadonlySet<SessionResumeCompatField> = new Set(),
 ) {
@@ -785,6 +795,9 @@ function buildSessionResumeParams(
       ? { dynamicWorkflowEnabled: true }
       : {}),
     ...buildDynamicWorkflowModeField(params, omittedFields),
+    ...(params.hostToolCapabilities?.length && !omittedFields.has("hostToolCapabilities")
+      ? { hostToolCapabilities: [...params.hostToolCapabilities] }
+      : {}),
   };
 }
 
@@ -3624,6 +3637,13 @@ export function createZCodeAgentService(
     return !params.workspaceIdentity || !isRemoteWorkspaceIdentity(params.workspaceIdentity);
   }
 
+  function resolveHostToolCapabilities(): string[] {
+    // The protocol handlers below are assembled in this Host process. Declaring
+    // executable capability here keeps tool exposure separate from transport
+    // presence and lets replacement tools add independent machine keys.
+    return [ZCODE_HOST_TOOL_CAPABILITY_SESSION_SWEEP];
+  }
+
   /**
    * 服务端「提供」（docs/dynamic-workflow/launch.md「Gray release」）：Host 读取一次并在本进程内固定。
    * 三点理由：
@@ -3731,7 +3751,7 @@ export function createZCodeAgentService(
       const { dynamicWorkflowEnabled, dynamicWorkflowMode } =
         await resolveDynamicWorkflowSessionFlags();
       const offPeakToolEnabled = isOffPeakToolSupported(params);
-      if (!offPeakToolEnabled && !dynamicWorkflowEnabled) return envelope;
+      const hostToolCapabilities = resolveHostToolCapabilities();
       const payload = commandPayloadSchemas.createSession.parse(envelope.payload);
       return {
         ...envelope,
@@ -3744,6 +3764,7 @@ export function createZCodeAgentService(
           ...(dynamicWorkflowEnabled && dynamicWorkflowMode !== undefined
             ? { dynamicWorkflowMode }
             : {}),
+          hostToolCapabilities,
         },
       };
     }
@@ -3901,10 +3922,16 @@ export function createZCodeAgentService(
       const offPeakToolEnabled = isOffPeakToolSupported(params);
       // 灰度在 client 就绪时已判定，这里是进程内已解析 promise 的再次 await（不打远端）。
       const dynamicWorkflowFlags = await resolveDynamicWorkflowSessionFlags();
+      const hostToolCapabilities = resolveHostToolCapabilities();
       try {
         const snapshot = await client.request(
           zcodeProtocolMethods.sessionCreate,
-          buildSessionCreateParams({ ...params, offPeakToolEnabled, ...dynamicWorkflowFlags }),
+          buildSessionCreateParams({
+            ...params,
+            offPeakToolEnabled,
+            ...dynamicWorkflowFlags,
+            hostToolCapabilities,
+          }),
           zcodeSessionStateSnapshotSchema,
           sessionTraceId ? { trace: { traceId: sessionTraceId } } : undefined,
         );
@@ -3945,7 +3972,12 @@ export function createZCodeAgentService(
         const snapshot = await client.request(
           zcodeProtocolMethods.sessionCreate,
           buildSessionCreateParams(
-            { ...params, offPeakToolEnabled, ...dynamicWorkflowFlags },
+            {
+              ...params,
+              offPeakToolEnabled,
+              ...dynamicWorkflowFlags,
+              hostToolCapabilities,
+            },
             new Set(compatFields),
           ),
           zcodeSessionStateSnapshotSchema,
@@ -4005,6 +4037,7 @@ export function createZCodeAgentService(
       const offPeakToolEnabled = isOffPeakToolSupported(params);
       // 冷恢复同样按 Host 的灰度判定下发，否则恢复出来的会话会丢掉工作流工具簇。
       const dynamicWorkflowFlags = await resolveDynamicWorkflowSessionFlags();
+      const hostToolCapabilities = resolveHostToolCapabilities();
       logger.info(cachedTraceId, "开始请求 ZCode Protocol session/resume", {
         mcpServerCount: getMcpServerCount(params),
         mcpServerNames: getMcpServerNames(params),
@@ -4016,7 +4049,12 @@ export function createZCodeAgentService(
       try {
         const snapshot = await client.request(
           zcodeProtocolMethods.sessionResume,
-          buildSessionResumeParams({ ...params, offPeakToolEnabled, ...dynamicWorkflowFlags }),
+          buildSessionResumeParams({
+            ...params,
+            offPeakToolEnabled,
+            ...dynamicWorkflowFlags,
+            hostToolCapabilities,
+          }),
           zcodeSessionStateSnapshotSchema,
         );
         const sessionTraceId = rememberSessionTrace(params, snapshot) ?? cachedTraceId;
@@ -4053,7 +4091,12 @@ export function createZCodeAgentService(
         const snapshot = await client.request(
           zcodeProtocolMethods.sessionResume,
           buildSessionResumeParams(
-            { ...params, offPeakToolEnabled, ...dynamicWorkflowFlags },
+            {
+              ...params,
+              offPeakToolEnabled,
+              ...dynamicWorkflowFlags,
+              hostToolCapabilities,
+            },
             new Set(compatFields),
           ),
           zcodeSessionStateSnapshotSchema,

@@ -43,6 +43,7 @@ import {
 import {
   subagentRuntimeConfigSchema,
   DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
+  ZCODE_HOST_TOOL_CAPABILITY_SESSION_SWEEP,
   ZCODE_SESSION_RUNTIME_PREFERENCES_REQUEST_TIMEOUT_MS,
   zcodeProtocolErrorCodes,
   zcodeProtocolMethods,
@@ -3386,6 +3387,8 @@ async function createRecord(
       // 不能只依赖 prompt 文本约束，否则内置工具和动态 MCP 工具仍可能越过调用面。
       toolAllowlist: "toolAllowlist" in params ? params.toolAllowlist : undefined,
       toolDisallowlist: resolveSessionToolDenylist(params, workspace),
+      hostToolCapabilities:
+        "hostToolCapabilities" in params ? params.hostToolCapabilities : undefined,
       nativeSearchEnhancementsEnabled: startupPreferences.nativeSearchEnhancementsEnabled,
       modelContextBudgetStrategy: startupPreferences.modelContextBudgetStrategy,
       // Memory Settings 是现有 CLI features.memory/use 之外的总开关。只在关闭时
@@ -3413,9 +3416,10 @@ async function createRecord(
     // 这里把阻塞交互转换成 server-to-client JSON-RPC request，由 app 通过 response 释放 runtime。
     permissionBroker: createProtocolInteractionBroker(context),
     automationPort: createProtocolAutomationPort(context, () => ownSessionRecord),
-    // 会话清理端口：host 不支持时（-32601）由工具 handler 给出终态提示，
-    // 不影响其它工具。无灰度开关——旧 Host 天然缺席方法名。
-    sessionSweepPort: createProtocolSessionSweepPort(context),
+    // 会话清理端口与工具面同用一个 Host 能力键；旧 Host 不声明能力时连端口也不注入。
+    ...(params.hostToolCapabilities?.includes(ZCODE_HOST_TOOL_CAPABILITY_SESSION_SWEEP)
+      ? { sessionSweepPort: createProtocolSessionSweepPort(context) }
+      : {}),
     topicResourcePort: createProtocolTopicResourcePort(context),
     // 只接入 Host 已开放的工具面；缺省不注入。复用现行异步工厂，
     // 不恢复旧 deferred ModelAdapter/Registry overlay，也不改变 Session Selection。

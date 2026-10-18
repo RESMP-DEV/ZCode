@@ -12,9 +12,11 @@ import {
   RESPOND_TO_COORDINATOR_TOOL_NAME,
   RESUME_WORKFLOW_RUN_TOOL_NAME,
   SAVE_WORKFLOW_TOOL_NAME,
+  type SessionSweepPort,
   SUBMIT_RESULT_TOOL_NAME,
 } from "@zcode/contracts";
 import { createSessionId } from "@zcode/contracts";
+import { ZCODE_HOST_TOOL_CAPABILITY_SESSION_SWEEP } from "@zcode/shared";
 import { describe, expect, it } from "vitest";
 import { AgentRuntime } from "../src/runtime.js";
 import { createTestSessionEventStore } from "./test-event-store.js";
@@ -282,6 +284,53 @@ describe("AgentRuntime：dynamicWorkflowEnabled 到工具注册表", () => {
     });
     expect(registry.has(CREATE_WORKFLOW_TOOL_NAME)).toBe(registered);
     expect(registry.has(RESOLVE_WORKFLOW_QUESTION_TOOL_NAME)).toBe(registered);
+  });
+});
+
+describe("Host tool capability gate", () => {
+  const SESSION_SWEEP_TOOL_NAMES = [
+    "SessionSweepPlan",
+    "SessionSweepExecute",
+    "SessionSweepSetPinned",
+  ] as const;
+
+  it("hides gated tools before registration, even when an explicit agent allowlist names them", () => {
+    const registry = createToolRegistry();
+    registerBuiltInTools(registry, {
+      includeSessionSweep: true,
+      allowedTools: [...SESSION_SWEEP_TOOL_NAMES, "Read"],
+    });
+
+    expect(registry.has("Read")).toBe(true);
+    for (const name of SESSION_SWEEP_TOOL_NAMES) {
+      expect(registry.has(name)).toBe(false);
+    }
+  });
+
+  it("registers gated tools when the trusted host declares their machine capability", () => {
+    const registry = createToolRegistry();
+    registerBuiltInTools(registry, {
+      includeSessionSweep: true,
+      availableCapabilities: [ZCODE_HOST_TOOL_CAPABILITY_SESSION_SWEEP],
+    });
+
+    for (const name of SESSION_SWEEP_TOOL_NAMES) {
+      expect(registry.has(name)).toBe(true);
+    }
+  });
+
+  it("keeps gated tools absent from the runtime model contract when a port exists but capability is undeclared", () => {
+    const runtime = new AgentRuntime(
+      createSessionId("capability-gate"),
+      {},
+      {
+        eventStore: createTestSessionEventStore(),
+        sessionSweepPort: {} as SessionSweepPort,
+      },
+    );
+
+    expect(runtime.getToolRegistry().has("SessionSweepPlan")).toBe(false);
+    expect(runtime.getTools().map((tool) => tool.name)).not.toContain("SessionSweepPlan");
   });
 });
 

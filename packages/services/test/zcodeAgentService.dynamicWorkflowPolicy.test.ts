@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   buildRemoteWorkspaceIdentity,
+  ZCODE_HOST_TOOL_CAPABILITY_SESSION_SWEEP,
   zcodeProtocolMethods,
   createDynamicWorkflowClientConfig,
   type DynamicWorkflowClientConfig,
@@ -345,6 +346,31 @@ describe("session create / resume / v4 createSession 的 flag（DWG-02）", () =
       expect(
         (paramsOf(request, V4_METHODS.command)[0] as { payload: Record<string, unknown> }).payload,
       ).not.toHaveProperty("dynamicWorkflowMode");
+    } finally {
+      service.disposeAll();
+    }
+  });
+
+  it("三条创建路径都携带 Host 工具能力键", async () => {
+    const { service, request } = await setup({ enabled: false });
+    try {
+      await service.createSession({ workspacePath: WORKSPACE_PATH, sessionId: "s-create" });
+      await service.resumeSession({ workspacePath: WORKSPACE_PATH, sessionId: "s-resume" });
+      await service.sendConversationCommandV4({
+        workspacePath: WORKSPACE_PATH,
+        envelope: v4CreateSessionEnvelope("cmd-host-capabilities"),
+      });
+
+      const capabilities = [ZCODE_HOST_TOOL_CAPABILITY_SESSION_SWEEP];
+      expect(paramsOf(request, zcodeProtocolMethods.sessionCreate)[0]).toMatchObject({
+        hostToolCapabilities: capabilities,
+      });
+      expect(paramsOf(request, zcodeProtocolMethods.sessionResume)[0]).toMatchObject({
+        hostToolCapabilities: capabilities,
+      });
+      expect(paramsOf(request, V4_METHODS.command)[0]).toMatchObject({
+        payload: { hostToolCapabilities: capabilities },
+      });
     } finally {
       service.disposeAll();
     }

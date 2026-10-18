@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
+  ZCODE_HOST_TOOL_CAPABILITY_SESSION_SWEEP,
   ZCODE_PROTOCOL_NAME,
   ZCODE_PROTOCOL_VERSION,
   zcodeComputerUseOperationEventSchema,
@@ -967,6 +968,26 @@ describe("ZCode Protocol", () => {
         unexpectedToolPolicy: true,
       }),
     ).toThrow();
+  });
+
+  it("carries trusted host tool capabilities on create and cold resume", () => {
+    const capabilities = [ZCODE_HOST_TOOL_CAPABILITY_SESSION_SWEEP];
+    expect(
+      zcodeSessionCreateParamsSchema.parse({ workspace, hostToolCapabilities: capabilities })
+        .hostToolCapabilities,
+    ).toEqual(capabilities);
+    expect(
+      zcodeSessionResumeParamsSchema.parse({
+        sessionId: "sess_1",
+        hostToolCapabilities: capabilities,
+      }).hostToolCapabilities,
+    ).toEqual(capabilities);
+    expect(() =>
+      zcodeSessionCreateParamsSchema.parse({
+        workspace,
+        hostToolCapabilities: [ZCODE_HOST_TOOL_CAPABILITY_SESSION_SWEEP, "session-sweep"],
+      }),
+    ).toThrow("Host tool capabilities must be unique");
   });
 
   it("models provider runtime header refresh as a strict interaction request", () => {
