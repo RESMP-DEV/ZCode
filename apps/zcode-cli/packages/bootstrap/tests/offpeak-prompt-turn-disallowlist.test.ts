@@ -9,9 +9,11 @@ import type { SendInputOptions } from "../src/app/types.js";
 import type { V4SessionRecordView } from "../src/zcode-protocol-v4/commands/types.js";
 
 describe("buildTurnToolDisallowlist (off-peak, D49)", () => {
-  it("automation 轮只隐藏三个 cron 写工具，不隐藏 OffPeakCreate（D49-3 反向断言）", () => {
+  it("automation 轮只隐藏任务定义写工具，CronDelete 刻意放行（D49-3 + automation-turn-self-cleanup）", () => {
     const tools = buildTurnToolDisallowlist({ automationId: "automation-1" });
-    expect(tools).toEqual(expect.arrayContaining(["CronCreate", "CronUpdate", "CronDelete"]));
+    expect(tools).toEqual(expect.arrayContaining(["CronCreate", "CronUpdate"]));
+    // CronDelete 是执行轮自清理路径（scoped self-delete），绝不能进 denylist。
+    expect(tools).not.toContain("CronDelete");
     expect(tools).not.toContain("OffPeakCreate");
     expect(tools).not.toContain("SendMessage");
     expect(tools).not.toContain("Workflow");
