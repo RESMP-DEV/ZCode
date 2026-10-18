@@ -978,6 +978,58 @@ describe("classifyModelFailure provider business codes", () => {
     });
   });
 
+  it("maps provider-wrapped EPIPE without an HTTP response status to a retryable network error", () => {
+    // 2026-10-18 事故形态（request 845bdf71）：上传请求体时对端断开，write EPIPE 被
+    // AI SDK SSE error chunk 包进 ProviderBusinessError.providerCode，无 responseStatus。
+    const failure = classifyModelFailure(
+      new ProviderBusinessError({
+        providerCode: "EPIPE",
+        providerId: "account:zai-individual-coding-plan",
+        providerKind: "anthropic",
+        providerMessage: "Cannot connect to API: write EPIPE",
+        responseBodySummary: {
+          error: {
+            cause: { code: "EPIPE", errno: -32, syscall: "write" },
+            message: "Cannot connect to API: write EPIPE",
+            name: "AI_APICallError",
+          },
+          type: "error",
+        },
+      }),
+    );
+
+    expect(failure).toMatchObject({
+      code: "model_request_failed",
+      message: "Cannot connect to API: write EPIPE",
+      reason: "network_error",
+      retryReason: "network_error",
+      retryable: true,
+    });
+  });
+
+  it("maps a direct APICallError write EPIPE to a retryable network error", () => {
+    const failure = classifyModelFailure(
+      new APICallError({
+        message: "Cannot connect to API: write EPIPE",
+        url: "https://api.z.ai/api/anthropic/v1/messages",
+        requestBodyValues: {},
+        cause: Object.assign(new Error("write EPIPE"), {
+          code: "EPIPE",
+          errno: -32,
+          syscall: "write",
+        }),
+      }),
+    );
+
+    expect(failure).toMatchObject({
+      code: "model_request_failed",
+      message: "Network connection failed for the provider request.",
+      reason: "network_error",
+      retryReason: "network_error",
+      retryable: true,
+    });
+  });
+
   it("maps provider business transport timeouts to retryable timeout failures", () => {
     const cases = [
       {

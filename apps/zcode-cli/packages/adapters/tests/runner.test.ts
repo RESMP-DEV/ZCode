@@ -5763,6 +5763,83 @@ describe("AiSdkModelAdapter", () => {
     ]);
   });
 
+  it("retries a main-turn EPIPE stream failure before visible output", async () => {
+    // 2026-10-18 生产事故回归（request 845bdf71）：上传 ~935KB 请求体时对端断开，
+    // write EPIPE 曾被分类为 unknown/不可重试，主对话 turn 在第 1/11 次尝试即终止。
+    // 语义见 specs/model-network-failure-retry.md。
+    const statusEvents: ModelNetworkStatusEvent[] = [];
+    let attempts = 0;
+    const runtime: AiSdkModelRuntime = {
+      async generateText() {
+        throw new Error("not used");
+      },
+      streamText() {
+        attempts += 1;
+        if (attempts === 1) {
+          return {
+            fullStream: stream([
+              { type: "start" },
+              {
+                type: "error",
+                error: new ProviderBusinessError({
+                  providerCode: "EPIPE",
+                  providerId: "test",
+                  providerKind: "custom",
+                }),
+              },
+            ]),
+          } as never;
+        }
+        return {
+          fullStream: stream([
+            { type: "start" },
+            { type: "text-delta", id: "retry-text", text: "ok" },
+            {
+              type: "finish",
+              finishReason: "stop",
+              rawFinishReason: undefined,
+              totalUsage: usage(2, 1),
+            },
+          ]),
+        } as never;
+      },
+    };
+    const adapter = new AiSdkModelAdapter({
+      registry: registry(),
+      retry: { baseDelayMs: 0, jitter: false, maxAttempts: 2, maxDelayMs: 0 },
+      runtime,
+    });
+
+    const events: ModelStreamEvent[] = [];
+    for await (const event of executeAdapterStreamText(adapter, {
+      providerId: "test" as never,
+      modelId: "model-a" as never,
+      messages: [{ role: "user", content: "Summarize without tools" }],
+      statusSink: {
+        publish(event) {
+          statusEvents.push(event);
+        },
+      },
+    })) {
+      events.push(event);
+    }
+
+    expect(attempts).toBe(2);
+    expect(statusEvents.map((event) => event.type)).toEqual([
+      "model_request_started",
+      "model_request_failed",
+      "model_retry_scheduled",
+      "model_request_started",
+      "model_request_completed",
+    ]);
+    expect(statusEvents[1]).toMatchObject({
+      attempt: 1,
+      reason: "network_error",
+      retryable: true,
+    });
+    expect(events.at(-1)?.type).toBe("finish");
+  });
+
   it("stops compact SSE retry after a raw provider message_start", async () => {
     const resetError = Object.assign(new Error("aborted"), { code: "ECONNRESET" });
     const includeRawChunks: Array<boolean | undefined> = [];

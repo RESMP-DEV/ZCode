@@ -264,6 +264,10 @@ export function isNetworkFailure(code?: string): boolean {
   const normalized = code?.toUpperCase();
   return (
     normalized === "ECONNRESET" ||
+    // 2026-10-18 事故（request 845bdf71）：上传 ~935KB 请求体时对端断开，write 抛
+    // EPIPE。它与 ECONNRESET 同为无任何响应语义的传输层断连，必须可重试；此前集合
+    // 缺失导致主对话 turn 在第 1/11 次尝试即终止。specs/model-network-failure-retry.md。
+    normalized === "EPIPE" ||
     normalized === "ECONNREFUSED" ||
     normalized === "EAI_AGAIN" ||
     normalized === "ENOTFOUND" ||
