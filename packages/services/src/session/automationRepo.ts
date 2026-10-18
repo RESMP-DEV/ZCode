@@ -710,8 +710,10 @@ export class AutomationRepo {
   /**
    * single-flight 认领到期项：原子 running=0→1。同时回收认领超时（claimed_at 过期）的僵尸项。
    * due 判定同时看 next_run_at 与 retry_at，任一到期即 due。
+   * options.localOnly=true 时只认领 location_kind='local' 的行：detached runner（系统级调度）
+   * 无法到达 remote workspace 的 session runtime，remote 行留给 app 内链路。
    */
-  async claimDue(now: number): Promise<ZCodeAutomation[]> {
+  async claimDue(now: number, options?: { localOnly?: boolean }): Promise<ZCodeAutomation[]> {
     await this.ensureReady();
     const db = this.getDatabase();
     db.exec("BEGIN IMMEDIATE");
@@ -738,12 +740,13 @@ export class AutomationRepo {
         .prepare(
           `SELECT * FROM automations
           WHERE enabled = 1 AND running = 0
+            AND (@local_only = 0 OR location_kind = 'local')
             AND (
               (retry_at IS NOT NULL AND retry_at <= @now)
               OR (retry_at IS NULL AND next_run_at IS NOT NULL AND next_run_at <= @now)
             )`,
         )
-        .all({ now }) as unknown as AutomationRow[];
+        .all({ now, local_only: options?.localOnly ? 1 : 0 }) as unknown as AutomationRow[];
       const claimed: ZCodeAutomation[] = [];
       const claim = db.prepare(
         `UPDATE automations
@@ -775,8 +778,12 @@ export class AutomationRepo {
    * 认领 UI「立即运行」产生的 manual run。
    * 立即运行不能改 next_run_at，否则会污染原 cron 节奏；manual run 使用 automation_runs
    * 作队列，短暂占用 automation running 锁来避免和定时触发并发投递同一个 task。
+   * options.localOnly 与 claimDue 同语义：detached runner 只认领本地 workspace。
    */
-  async claimManualRuns(now: number): Promise<ClaimedManualAutomationRun[]> {
+  async claimManualRuns(
+    now: number,
+    options?: { localOnly?: boolean },
+  ): Promise<ClaimedManualAutomationRun[]> {
     await this.ensureReady();
     const db = this.getDatabase();
     db.exec("BEGIN IMMEDIATE");
@@ -842,10 +849,11 @@ export class AutomationRepo {
           WHERE r.trigger = 'manual'
             AND r.dispatch_status = 'claimed'
             AND a.running = 0
+            AND (@local_only = 0 OR a.location_kind = 'local')
             AND (r.attempts = 0 OR r.updated_at <= @stale)
           ORDER BY r.created_at ASC`,
         )
-        .all({ stale: now - CLAIM_STALE_MS }) as unknown as Array<Record<string, unknown>>;
+        .all({ stale: now - CLAIM_STALE_MS, local_only: options?.localOnly ? 1 : 0 }) as unknown as Array<Record<string, unknown>>;
 
       const claimed: ClaimedManualAutomationRun[] = [];
       const claimAutomation = db.prepare(

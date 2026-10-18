@@ -54,6 +54,24 @@ const ARCHIVED_CLEAR_UNREAD_MIGRATION_SQL =
 // （迁移前后 sweep 时点完全一致），打点只发生在新的手动归档 0→1 转换上。
 const ARCHIVED_AT_COLUMN_MIGRATION_SQL = "ALTER TABLE tasks ADD COLUMN archived_at INTEGER";
 
+// 系统级调度（specs/automation-system-scheduling.md）：
+// 1. automation_config kv 表是调度模式（app/system）与 last tick 的唯一事实源；
+// 2. 会话绑定退役：存量 target_task_id 一律置空，此后派发永远新建 fresh session；
+// 3. 存量 task meta 的 cronAutomationId 镜像清除——那是旧绑定投递的归属标记；新 run session
+//    的标记由 createTask 正常写入，sweep 保护改按 automation_runs 在途判定，不再消费该镜像。
+const AUTOMATION_SYSTEM_SCHEDULING_MIGRATION_SQL = `
+CREATE TABLE IF NOT EXISTS automation_config (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+UPDATE automations SET target_task_id = NULL WHERE target_task_id IS NOT NULL;
+UPDATE tasks SET cron_automation_id = NULL WHERE cron_automation_id IS NOT NULL;
+INSERT INTO automation_config(key, value, updated_at)
+  VALUES ('system_scheduling_mode', 'app', CAST(strftime('%s','now') AS INTEGER) * 1000)
+  ON CONFLICT(key) DO NOTHING;
+`;
+
 // 与 Agent 同样是库级串行事务，但不跨域依赖其具体 adapter。TS 转换使用冻结语义版本，
 // 禁用 function.toString 哈希：Electron/SEA 打包会改变函数文本而非迁移语义。
 const definitions = [
@@ -84,6 +102,10 @@ const definitions = [
   {
     id: "0005_task_archived_at",
     checksumInput: [ARCHIVED_AT_COLUMN_MIGRATION_SQL],
+  },
+  {
+    id: "0006_automation_system_scheduling",
+    checksumInput: [AUTOMATION_SYSTEM_SCHEDULING_MIGRATION_SQL],
   },
 ] as const;
 
@@ -146,6 +168,8 @@ export function runTasksDatabaseMigrations(
         ).some((column) => column.name === "archived_at");
         if (!hasArchivedAt) db.exec(ARCHIVED_AT_COLUMN_MIGRATION_SQL);
       }
+      else if (migration.id === "0006_automation_system_scheduling")
+        db.exec(AUTOMATION_SYSTEM_SCHEDULING_MIGRATION_SQL);
       else db.exec(OFFICIAL_GLM_SELECTION_MIGRATION_SQL);
       migrationFacts.executedCount++;
       db.prepare("INSERT INTO tasks_schema_migration VALUES(?,?,?)").run(
