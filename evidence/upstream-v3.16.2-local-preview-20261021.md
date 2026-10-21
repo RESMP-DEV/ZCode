@@ -55,6 +55,6 @@
 
 ## Final numbers (filled at completion)
 
-- Merge commit: PENDING
-- Final suites: PENDING
-- Snapshot: PENDING
+- Merge commit: `940b3bce` (receipt `cfe8d620`, gitignore gate-fix follow-up) → `resmp/main` `c715cd03`; pre-push gate passed on push (lint + db:schema + architecture + affected-stage whole-suite policy skip).
+- Final suites: `packages/services` 3428 passed / 0 failed / 1 skipped; `packages/ui` 9960 passed / 0 failed; `apps/zcode-cli` targeted (automation-command, offpeak denylist, runtime-tool-allowlist 40) green; `pnpm typecheck` exit 0; `pnpm lint` 0 errors.
+- Snapshot: `~/.local/lib/alphaheng/zcode/packages/20261021-104135-c715cd03-dirty`, installed to `/Applications/ZCode Preview.app` (version 3.16.2, `dev.zcode.app.preview`), main-binary SHA-256 `51ea98f5b4ff5e5c079a6953a886a10999e5b355a76bcd92ff5dd59cb7167bd9`; `git merge-base --is-ancestor 940b3bce c715cd03` confirms the merge is contained in the snapshot sha. Smoke: identity/version/snapshot/plugin-sandbox sentinels OK; launch leg skipped (old instance still running — relaunch armed, awaiting user confirmation per standing rule). The `-dirty` suffix is the uncommitted receipt edit at packaging time; the finalized receipt is the commit adding this line.
