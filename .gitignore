@@ -75,3 +75,8 @@ packages/desktop/resources/macos-window-bounds/
 __pycache__/
 *.pyc
 .zcode-runtime
+
+# 会话本地产物：ZCode 工作区目录与根级构建产物（receipts 落 build/reports，均不入库）。
+# 上游 v3.16.2 起 verify:pre-push 的 affected 阶段要求工作区干净，未忽略的未跟踪文件会挡住 push。
+.zcode/
+/build/
