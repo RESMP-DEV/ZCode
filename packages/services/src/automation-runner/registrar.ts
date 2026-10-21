@@ -36,11 +36,15 @@ export function resolveRunnerEntryPath(explicit?: string): string {
   const explicitEntry = explicit?.trim();
   if (explicitEntry) return explicitEntry;
   const moduleDir = dirname(fileURLToPath(import.meta.url));
+  // resourcesPath 是 Electron 注入的运行时属性（bare Node / ELECTRON_RUN_AS_NODE 下不存在），
+  // 不在 @types/node 的 Process 上；按可选属性窄化读取，运行时行为与原写法一致。
+  const electronResourcesPath = (process as NodeJS.Process & { resourcesPath?: string })
+    .resourcesPath;
   const candidates = [
     // 打包态：asar 内的模块路径对 bare Node（ELECTRON_RUN_AS_NODE）不可执行；
     // runner 由 electron-builder asarUnpack 落到 app.asar.unpacked/out/ —— 真实磁盘文件。
-    process.resourcesPath
-      ? join(process.resourcesPath, "app.asar.unpacked", "out", "automation-runner", "index.js")
+    electronResourcesPath
+      ? join(electronResourcesPath, "app.asar.unpacked", "out", "automation-runner", "index.js")
       : null,
     join(moduleDir, "..", "automation-runner", "index.js"),
     join(moduleDir, "..", "automation-runner", "index.ts"),

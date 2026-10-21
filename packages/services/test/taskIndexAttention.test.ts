@@ -30,7 +30,9 @@ function buildMeta(params: {
 
 async function withRepo(run: (repo: TaskIndexRepo) => Promise<void>): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), "zcode-task-index-attention-"));
-  const repo = new TaskIndexRepo(join(dir, "tasks-index.sqlite"));
+  // 上游 v3.16.2 的构造签名是 (migrationSettings, storageHostId, startupDbPath, busyTimeout)；
+  // 隔离用的临时库路径必须传给第三个参数 startupDbPath，否则会落到真实用户库。
+  const repo = new TaskIndexRepo(undefined, undefined, join(dir, "tasks-index.sqlite"));
   try {
     await repo.ensureReady();
     await run(repo);

@@ -34,7 +34,9 @@ async function withRepo(
 ): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), "zcode-task-index-archived-unread-"));
   const dbPath = join(dir, "tasks-index.sqlite");
-  const repo = new TaskIndexRepo(dbPath);
+  // 上游 v3.16.2 的构造签名是 (migrationSettings, storageHostId, startupDbPath, busyTimeout)；
+  // 隔离用的临时库路径必须传给第三个参数 startupDbPath，否则会落到真实用户库。
+  const repo = new TaskIndexRepo(undefined, undefined, dbPath);
   try {
     await repo.ensureReady();
     await run(repo, dbPath);
@@ -131,7 +133,8 @@ test("迁移 0004 清存量归档未读行", async () => {
   const dir = await mkdtemp(join(tmpdir(), "zcode-task-index-migration-0004-"));
   const dbPath = join(dir, "tasks-index.sqlite");
   try {
-    const repo = new TaskIndexRepo(dbPath);
+    // 同 withRepo：临时库路径传第三个参数 startupDbPath（上游构造签名）。
+    const repo = new TaskIndexRepo(undefined, undefined, dbPath);
     await repo.ensureReady();
     const workspacePath = "/tmp/ws-migration";
     const taskId = "task-legacy";
@@ -147,7 +150,9 @@ test("迁移 0004 清存量归档未读行", async () => {
     db.prepare("UPDATE tasks SET unread_at = 555 WHERE task_id = ?").run(taskId);
     db.prepare("DELETE FROM tasks_schema_migration WHERE id = '0004_archived_clear_unread'").run();
 
-    runTasksDatabaseMigrations(db);
+    // 上游把 runTasksDatabaseMigrations 改成 async（迁移前先做备份）；
+    // 不 await 会在断言时迁移尚未应用。
+    await runTasksDatabaseMigrations(db);
 
     const row = db.prepare("SELECT unread_at FROM tasks WHERE task_id = ?").get(taskId) as {
       unread_at: number | null;

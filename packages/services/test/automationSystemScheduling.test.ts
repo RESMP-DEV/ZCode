@@ -89,20 +89,22 @@ describe("迁移 0006：系统级调度", () => {
     for (const db of databases.splice(0)) db.close();
   });
 
-  it("全新库创建 automation_config 且默认 app 模式；ledger 幂等", () => {
+  // 合并后 runTasksDatabaseMigrations 是异步（上游备份/journal 语义）：必须 await 迁移
+  // 完成（含 automation_config 建表）再断言，否则读到 no such table。
+  it("全新库创建 automation_config 且默认 app 模式；ledger 幂等", async () => {
     const db = open();
-    runTasksDatabaseMigrations(db);
+    await runTasksDatabaseMigrations(db);
     expect(
       db.prepare("SELECT value FROM automation_config WHERE key='system_scheduling_mode'").get(),
     ).toEqual({ value: "app" });
     const before = db.prepare("SELECT * FROM tasks_schema_migration").all();
-    runTasksDatabaseMigrations(db);
+    await runTasksDatabaseMigrations(db);
     expect(db.prepare("SELECT * FROM tasks_schema_migration").all()).toEqual(before);
   });
 
-  it("存量会话绑定退役：target_task_id 与 cron_automation_id 镜像一次性清除", () => {
+  it("存量会话绑定退役：target_task_id 与 cron_automation_id 镜像一次性清除", async () => {
     const db = open();
-    runTasksDatabaseMigrations(db);
+    await runTasksDatabaseMigrations(db);
     db.prepare("DELETE FROM tasks_schema_migration WHERE id='0006_automation_system_scheduling'").run();
     db.exec(
       `INSERT INTO automations (automation_id, title, cron_expr, prompt, workspace_key, workspace_path, target_task_id, created_at, updated_at)
@@ -112,7 +114,14 @@ describe("迁移 0006：系统级调度", () => {
       `INSERT INTO tasks (workspace_key, workspace_path, task_id, title, created_at, updated_at, cron_automation_id)
        VALUES ('/w', '/w', 'task-bound', 't', 1, 1, 'a1')`,
     );
-    runTasksDatabaseMigrations(db);
+    // 重放 0006 验证一次性退役语义；此时有存量数据会触发表级备份，:memory: 推导不出
+    // 备份目录会落到进程 CWD，显式传 dbPath 让备份进临时目录。
+    const root = await mkdtemp(join(tmpdir(), "zcode-automation-scheduling-"));
+    try {
+      await runTasksDatabaseMigrations(db, { dbPath: join(root, "tasks-index.sqlite") });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
     expect(
       db.prepare("SELECT target_task_id FROM automations WHERE automation_id='a1'").get(),
     ).toEqual({ target_task_id: null });

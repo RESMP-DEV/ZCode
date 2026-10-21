@@ -74,6 +74,10 @@ export type ZCodeAutomationRunOutcome = "running" | "succeeded" | "failed" | "st
 
 /** 一条定时任务定义 + 调度状态。 */
 export interface ZCodeAutomation {
+  projectId?: string | null;
+  hostId?: string;
+  /** 创建定义时固化，之后不跟随虚拟项目 roots 编辑。 */
+  additionalDirectories?: string[];
   automationId: string;
   title: string;
   /** 5 段 cron，本地时区。 */
@@ -161,6 +165,10 @@ export interface ZCodeAutomationRun {
 
 /** 创建 automation 的入参（workspace 由调用方从 session 上下文注入）。 */
 export interface ZCodeAutomationCreateParams {
+  projectId?: string | null;
+  hostId?: string;
+  /** 创建定义时固化，之后不跟随虚拟项目 roots 编辑。 */
+  additionalDirectories?: string[];
   title: string;
   cronExpr: string;
   /** 仅创建期使用：由服务层基于真实当前时间换算为 cronExpr，不写入数据库。 */
@@ -248,4 +256,13 @@ export interface ZCodeAutomationSchedulingConfig {
   disabledAt?: number;
   /** runner 最近一次 tick 落账时间（毫秒）；供 UI/CLI 判断注册是否真的在跑。 */
   lastTickAt?: number;
+}
+
+/** Host 在定义创建时解析的执行目录；派发只读取此快照，不重新解析项目 roots。 */
+export interface ProjectExecutionSnapshot {
+  projectId: string | null;
+  hostId: string;
+  workspacePath: string;
+  workspaceIdentity?: string;
+  additionalDirectories: string[];
 }

@@ -7,15 +7,16 @@ import { initializeNewTaskDraft } from "../src/v4/composer/newTaskDraft.js";
 
 /** 无 Recent 的环境（node 下 window 未定义，readComposerRecent 返回 null）。 */
 test("new task draft defaults to yolo permission mode", () => {
+  // 上游 v3.16.2 移除了 initializeFromNewTask 字段（草稿契约瘦身），
+  // 断言改为：残留传入的旧字段不会在产出草稿里复活。
   const draft = initializeNewTaskDraft(
-    { text: "", initializeFromNewTask: true, updatedAt: 1 },
+    { text: "", initializeFromNewTask: true, updatedAt: 1 } as never,
     "/ws-fresh",
     undefined,
     { revision: 1, providers: [] },
   );
   assert.equal(draft.mode, "yolo");
   assert.equal(draft.planEnabled, false);
-  assert.equal(draft.initializeFromNewTask, undefined);
 });
 
 test("remembered build mode no longer seeds new task drafts", () => {

@@ -80,7 +80,10 @@ export class AutomationConfigRepo {
       this.db.exec("PRAGMA synchronous = NORMAL");
     }
     if (isTasksStoragePrepared(path, this.db)) return;
-    if (!isTasksStorageMigrated(path, this.db)) runTasksDatabaseMigrations(this.db);
+    // runTasksDatabaseMigrations 合并后为异步（上游备份/journal 语义）：不 await 会在
+    // automation_config 建表完成前就返回，随后的 read 抛 no such table。与
+    // AutomationRepo.initialize 的等待约定一致，并把 dbPath 传给备份目录推导。
+    if (!isTasksStorageMigrated(path, this.db)) await runTasksDatabaseMigrations(this.db, path);
   }
 
   private getDatabase(): DatabaseSyncInstance {

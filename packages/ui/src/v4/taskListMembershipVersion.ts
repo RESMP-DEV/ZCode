@@ -29,7 +29,8 @@ export function getTaskListMembershipVersion(): number {
 }
 
 // 同一条 workspace_task_list_changed 会经由多条订阅链路（useGlobalTaskList 的
-// 共享订阅 fan-out + useWorkspaceTaskLists 的独立订阅，跨 RPC 反序列化后对象引用不同）
+// 共享订阅 fan-out + project-sidebar 的树订阅（useProjectTree readTree 刷新与
+// useProjectUnreadSignals 的 workspace 事件订阅），跨 RPC 反序列化后对象引用不同）
 // 各 bump 一次，一次归属 mutation 会触发多轮全局 membership 重拉。这里按事件内容 key
 // 在短窗口内去重：key 包含 meta 的时间字段（updatedAt/unreadAt），保证只有"同一事件的
 // 重复投递"被合并；快速连续的真实 mutation（pin→unpin 等）reason/时间戳不同，不会被误吞。

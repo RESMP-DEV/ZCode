@@ -3,14 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { expect, it, vi } from "vitest";
-import { prepareTasksIndexStorage } from "../src/session/tasksDatabase/startup.js";
+import { prepareTasksIndexStorage } from "../src/project-storage/startup.js";
 import { runTasksDatabaseMigrations } from "../src/session/tasksDatabase/migrations.js";
 
 it("prepares the same frozen ledger as the old runner and preserves completed data", async () => {
   const dir = await mkdtemp(join(tmpdir(), "zcode-startup-"));
   const expected = new DatabaseSync(":memory:");
   try {
-    runTasksDatabaseMigrations(expected);
+    await runTasksDatabaseMigrations(expected);
     const path = join(dir, "tasks.sqlite");
     const phases: string[] = [];
     await prepareTasksIndexStorage(path, (phase) => {
@@ -48,7 +48,7 @@ it("does not reuse an in-process preparation marker after the database was repla
   try {
     markTasksStoragePrepared("/replacement-test");
     expect(isTasksStoragePrepared("/replacement-test", db)).toBe(false);
-    runTasksDatabaseMigrations(db);
+    await runTasksDatabaseMigrations(db);
     expect(isTasksStoragePrepared("/replacement-test", db)).toBe(true);
     db.exec("UPDATE tasks_schema_migration SET checksum='invalid'");
     expect(() => isTasksStoragePrepared("/replacement-test", db)).toThrow("checksum mismatch");
@@ -91,14 +91,16 @@ it("SILENTDB-01/02: reports maintenance separately and no migration for a prepar
       migration: { kind: "initialize", executedCount: 0, committedCount: 0 },
     });
     expect(first).toContainEqual(
-      // 本地迁移 0004/0005 加入后，全新库 initialize 执行并提交 5 项迁移。
+      // fork 与 upstream 迁移并集（0001-0003、0004×2、0005、0006×2）后，
+      // 全新库 initialize 执行并提交 8 项迁移。
       expect.objectContaining({
-        // 6/6 的 committed 计数在 maintaining/ready 报告里才出现（committing 时仍是 0）。
+        // 8/8 的 committed 计数在 maintaining/ready 报告里才出现（committing 时仍是 0）。
         phase: "maintaining",
         migration: expect.objectContaining({
           kind: "initialize",
-          executedCount: 6,
-          committedCount: 6,
+          executedCount: 8,
+          committedCount: 8,
+          lastAppliedMigrationId: null,
         }),
       }),
     );
@@ -106,7 +108,7 @@ it("SILENTDB-01/02: reports maintenance separately and no migration for a prepar
     await prepareTasksIndexStorage(path, (phase, migration) => second.push({ phase, migration }));
     expect(second.some((s) => s.phase === "migrating")).toBe(false);
     expect(second.at(-1)).toMatchObject({
-      migration: { lastAppliedMigrationId: "0006_automation_system_scheduling" },
+      migration: { lastAppliedMigrationId: "0006_task_group_admissions" },
     });
     expect(second.some((s) => s.phase === "maintaining")).toBe(true);
     expect(second).toContainEqual(
@@ -137,8 +139,8 @@ it("retains committed facts if closing the migration connection fails", async ()
     expect(states.at(-1)).toMatchObject({
       migration: {
         kind: "initialize",
-        executedCount: 6,
-        committedCount: 6,
+        executedCount: 8,
+        committedCount: 8,
         lastAppliedMigrationId: null,
       },
     });
@@ -178,6 +180,9 @@ it("keeps the pre-upgrade task ledger ID after committing the remaining migratio
     await prepareTasksIndexStorage(path, () => {});
     const db = new DatabaseSync(path);
     try {
+      // fork 与 upstream 并集账本：删 0003 行后，升级前基线是剩余账本的
+      // 字符串序最大编号（0006_task_group_admissions）；验证上报的是升级前基线
+      // 而非本轮刚补的 0003（该属性不随迁移数量变化）。
       db.exec("DELETE FROM tasks_schema_migration WHERE id='0003_official_glm_selection'");
     } finally {
       db.close();
@@ -190,11 +195,31 @@ it("keeps the pre-upgrade task ledger ID after committing the remaining migratio
         kind: "upgrade",
         executedCount: 1,
         committedCount: 1,
-        // 只删 0003 行时，升级前基线是剩余账本的最高编号（0006 系统级调度）；验证上报的是
-        // 升级前基线而非本轮刚补的 0003（该属性不随迁移数量变化）。
-        lastAppliedMigrationId: "0006_automation_system_scheduling",
+        lastAppliedMigrationId: "0006_task_group_admissions",
       },
     });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+it("startup receives old settings before marking the project migration complete", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "zcode-startup-projects-"));
+  const path = join(dir, "tasks.sqlite");
+  try {
+    await prepareTasksIndexStorage(path, () => {}, {
+      lastWorkspaceSession: [
+        { kind: "local", workspacePath: "/saved-project", workspacePurpose: "project" },
+      ],
+    });
+    const db = new DatabaseSync(path);
+    try {
+      expect(db.prepare("SELECT root_path FROM project_roots").all()).toEqual([
+        { root_path: "/saved-project" },
+      ]);
+    } finally {
+      db.close();
+    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

@@ -196,6 +196,11 @@ export interface AutomationDispatchRequest {
   mode?: ZCodeTaskMode;
   workspacePath: string;
   workspaceIdentity?: string;
+  // 项目执行作用域（upstream v3.16.2）：派发时携带的目标项目/host/附加目录，
+  // 原样传给 createTask，由 task service 决定归属与目录可见性。
+  projectId?: string | null;
+  hostId?: string;
+  additionalDirectories?: string[];
 }
 
 export interface AutomationDispatchDeps {
@@ -292,8 +297,10 @@ export async function dispatchAutomationRun(
     // 未绑定会话（迁移后唯一形态）：建会话 trace 与执行 runId 是两种身份；
     // 两条派发路径的 prompt 都必须统一使用 runId。
     const task = await deps.zcodeTaskService.createTask({
+      projectId: request.projectId,
       workspacePath: request.workspacePath,
       ...(request.workspaceIdentity ? { workspaceIdentity: request.workspaceIdentity } : {}),
+      additionalDirectories: request.additionalDirectories,
       model: formatModelPickerValue(submissionModelSelection),
       mode: request.mode,
       thoughtLevel: submissionModelSelection.options?.reasoningLevel,
@@ -409,6 +416,9 @@ export async function dispatchManualAutomationRun(
         ...(params.automation.workspaceIdentity
           ? { workspaceIdentity: params.automation.workspaceIdentity }
           : {}),
+        projectId: params.automation.projectId,
+        hostId: params.automation.hostId,
+        additionalDirectories: params.automation.additionalDirectories,
       },
       deps,
     );

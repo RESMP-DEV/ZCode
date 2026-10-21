@@ -1,182 +1,91 @@
-import assert from "node:assert/strict";
-import { test } from "vitest"; // vitest 4 不再注册 node:test 套件（上游升级后集体断签），API 面相同改用 vitest 注册
-import type { ZCodeTaskMeta } from "@zcode/shared";
-import { buildWorkspaceTaskListDisplayGroups } from "../src/hooks/workspaceTaskListDisplayGroups.js";
+import { describe, expect, it } from "vitest";
+import type { ProjectTree } from "@/project-sidebar/contract.js";
 import {
-  buildTaskEntityKey,
-  buildTaskListCacheDescriptor,
-  buildTaskListCacheKeyFromDescriptor,
-  buildTaskWorkspaceKey,
-  type CachedTaskListResult,
-} from "../src/lib/taskQueryCache.js";
-import { useTaskQueryCacheStore } from "../src/store/taskQueryCacheStore.js";
+  projectHasPendingAction,
+  projectHasUnread,
+} from "@/project-sidebar/view.js";
 
 // specs/workspace-attention-lifecycle.md：pendingInteraction 的琥珀点 rollup 覆盖
-// 分页窗口之外——列表缓存在分页裁剪前的完整结果上固化 hasPendingAction，
-// 项目行与「任务」分区头（conversation workspace，任务不属于任何项目）共用该标志。
-
-const WORKSPACE_PATH = "/ws/conversation";
+// 分页/可见窗口之外——上游 v3.16.2 的侧栏改为 host 权威树（project-sidebar），
+// 选择器在完整 tree.tasks 上汇总；本测试固化该契约：琥珀点的事实源是持久化
+// pendingInteraction，蓝点的事实源是 unreadAt，两者互不串扰，归档行一律排除。
 
 function buildTask(params: {
-  taskId: string;
-  updatedAt: number;
-  pendingInteraction?: ZCodeTaskMeta["pendingInteraction"];
-}): ZCodeTaskMeta {
-  return {
-    taskId: params.taskId,
-    traceId: `trace-${params.taskId}`,
-    title: params.taskId,
-    workspacePath: WORKSPACE_PATH,
-    createdAt: params.updatedAt - 1000,
-    updatedAt: params.updatedAt,
-    mode: "build",
-    ...(params.pendingInteraction ? { pendingInteraction: params.pendingInteraction } : {}),
-  };
-}
-
-function buildFixture(visibleTasks: ZCodeTaskMeta[], cacheExtras: {
-  total: number;
-  hasPendingAction?: boolean;
+  projectId: string | null;
+  hostId?: string;
+  archived?: boolean;
+  unreadAt?: string | null;
+  pendingInteraction?: unknown;
 }) {
-  const scope = { workspacePath: WORKSPACE_PATH };
-  const workspaceKey = buildTaskWorkspaceKey(WORKSPACE_PATH);
-  const descriptor = buildTaskListCacheDescriptor({
-    kind: "workspace",
-    workspaceScopes: [scope],
-    sortBy: "updated",
-    search: "",
-    expanded: false,
-    visibleLimit: 5,
-  });
-  const queryKey = `${buildTaskListCacheKeyFromDescriptor(descriptor)}::version=0`;
-  const cachedResult: CachedTaskListResult = {
-    taskKeys: visibleTasks.map((task) => buildTaskEntityKey(task)),
-    ...(cacheExtras.hasPendingAction === undefined
-      ? {}
-      : { hasPendingAction: cacheExtras.hasPendingAction }),
-    total: cacheExtras.total,
-    hasMore: cacheExtras.total > visibleTasks.length,
-    fetchedAt: Date.now(),
-    invalidationVersion: 0,
-    stale: false,
-    partial: false,
-    loadingShardKeys: [],
-    failedShardKeys: [],
-    descriptor,
-  };
   return {
-    queryConfigs: [{ scope, workspaceKey, visibleLimit: 5, queryKey }],
-    resultsByQueryKey: { [queryKey]: cachedResult },
-    queryKey,
-    descriptor,
+    id: `task-${Math.random().toString(36).slice(2, 8)}`,
+    projectId: params.projectId,
+    hostId: params.hostId ?? "local",
+    archived: params.archived ?? false,
+    unreadAt: params.unreadAt ?? null,
+    ...(params.pendingInteraction !== undefined
+      ? { pendingInteraction: params.pendingInteraction }
+      : {}),
   };
 }
 
-test("cached full-result hasPendingAction lights rollup beyond the visible window", () => {
-  // 分页窗口（前 5 条）里没有 pendingInteraction，但完整结果（第 6 条）有。
-  const visibleTasks = [
-    buildTask({ taskId: "task-1", updatedAt: 6000 }),
-    buildTask({ taskId: "task-2", updatedAt: 5000 }),
-    buildTask({ taskId: "task-3", updatedAt: 4000 }),
-    buildTask({ taskId: "task-4", updatedAt: 3000 }),
-    buildTask({ taskId: "task-5", updatedAt: 2000 }),
-  ];
-  const { queryConfigs, resultsByQueryKey } = buildFixture(visibleTasks, {
-    total: 6,
-    hasPendingAction: true,
+function buildTree(tasks: ReturnType<typeof buildTask>[]): ProjectTree {
+  // 选择器只读 tree.tasks；树其余字段由 Host 组装，与本测试的 rollup 契约无关。
+  return { tasks } as unknown as ProjectTree;
+}
+
+const PROJECT = { id: "project-a", hostId: "local" };
+
+describe("projectHasPendingAction rollup", () => {
+  it("lights up when a non-archived task carries pendingInteraction", () => {
+    const tree = buildTree([
+      buildTask({ projectId: "project-a" }),
+      buildTask({ projectId: "project-a", pendingInteraction: { summary: "等确认" } }),
+    ]);
+    expect(projectHasPendingAction(tree, PROJECT)).toBe(true);
   });
 
-  const { groups } = buildWorkspaceTaskListDisplayGroups({
-    queryConfigs,
-    resultsByQueryKey,
-    taskMetaByEntityKey: Object.fromEntries(
-      visibleTasks.map((task) => [buildTaskEntityKey(task), task]),
-    ),
-    taskUnreadOverlayByEntityKey: {},
-    optimisticTaskOverlayByWorkspaceKey: new Map(),
-    previousGroupsByWorkspaceKey: new Map(),
-    sortBy: "updated",
+  it("stays dark when the only pendingInteraction task is archived", () => {
+    const tree = buildTree([
+      buildTask({
+        projectId: "project-a",
+        archived: true,
+        pendingInteraction: { summary: "等确认" },
+      }),
+    ]);
+    expect(projectHasPendingAction(tree, PROJECT)).toBe(false);
   });
 
-  assert.equal(groups.length, 1);
-  assert.equal(groups[0].hasPendingAction, true);
-});
-
-test("visible pendingInteraction lights rollup without the cached flag", () => {
-  const visibleTasks = [
-    buildTask({
-      taskId: "task-1",
-      updatedAt: 6000,
-      pendingInteraction: { interactionId: "i-1", kind: "permission" },
-    }),
-  ];
-  const { queryConfigs, resultsByQueryKey } = buildFixture(visibleTasks, { total: 1 });
-
-  const { groups } = buildWorkspaceTaskListDisplayGroups({
-    queryConfigs,
-    resultsByQueryKey,
-    taskMetaByEntityKey: Object.fromEntries(
-      visibleTasks.map((task) => [buildTaskEntityKey(task), task]),
-    ),
-    taskUnreadOverlayByEntityKey: {},
-    optimisticTaskOverlayByWorkspaceKey: new Map(),
-    previousGroupsByWorkspaceKey: new Map(),
-    sortBy: "updated",
+  it("stays dark when the pending task belongs to another project or host", () => {
+    const tree = buildTree([
+      buildTask({ projectId: "project-b", pendingInteraction: { summary: "等确认" } }),
+      buildTask({
+        projectId: "project-a",
+        hostId: "remote-1",
+        pendingInteraction: { summary: "等确认" },
+      }),
+    ]);
+    expect(projectHasPendingAction(tree, PROJECT)).toBe(false);
   });
 
-  assert.equal(groups[0].hasPendingAction, true);
-});
-
-test("rollup stays off when neither source reports a pending interaction", () => {
-  const visibleTasks = [buildTask({ taskId: "task-1", updatedAt: 6000 })];
-  const { queryConfigs, resultsByQueryKey } = buildFixture(visibleTasks, {
-    total: 1,
-    hasPendingAction: false,
+  it("treats key-present undefined pendingInteraction as no signal", () => {
+    const tree = buildTree([
+      buildTask({ projectId: "project-a", pendingInteraction: undefined }),
+    ]);
+    expect(projectHasPendingAction(tree, PROJECT)).toBe(false);
   });
 
-  const { groups } = buildWorkspaceTaskListDisplayGroups({
-    queryConfigs,
-    resultsByQueryKey,
-    taskMetaByEntityKey: Object.fromEntries(
-      visibleTasks.map((task) => [buildTaskEntityKey(task), task]),
-    ),
-    taskUnreadOverlayByEntityKey: {},
-    optimisticTaskOverlayByWorkspaceKey: new Map(),
-    previousGroupsByWorkspaceKey: new Map(),
-    sortBy: "updated",
+  it("never couples the amber dot to unreadAt nor the blue dot to pendingInteraction", () => {
+    const onlyUnread = buildTree([
+      buildTask({ projectId: "project-a", unreadAt: "2026-10-21T00:00:00.000Z" }),
+    ]);
+    expect(projectHasPendingAction(onlyUnread, PROJECT)).toBe(false);
+    expect(projectHasUnread(onlyUnread, PROJECT)).toBe(true);
+
+    const onlyPending = buildTree([
+      buildTask({ projectId: "project-a", pendingInteraction: { summary: "等确认" } }),
+    ]);
+    expect(projectHasPendingAction(onlyPending, PROJECT)).toBe(true);
+    expect(projectHasUnread(onlyPending, PROJECT)).toBe(false);
   });
-
-  assert.equal(groups[0].hasPendingAction, false);
-});
-
-test("query cache republishes when only hasPendingAction flips", () => {
-  const store = useTaskQueryCacheStore.getState();
-  store.clearAll();
-  const task = buildTask({ taskId: "task-1", updatedAt: 6000 });
-  const { queryKey, descriptor } = buildFixture([task], { total: 1 });
-  const baseEntry = {
-    queryKey,
-    descriptor,
-    items: [task],
-    total: 1,
-    hasMore: false,
-  };
-
-  try {
-    store.setQueryResults([{ ...baseEntry, hasPendingAction: true }]);
-    const first = useTaskQueryCacheStore.getState().resultsByQueryKey[queryKey];
-    assert.equal(first?.hasPendingAction, true);
-
-    // 同值 republish：内容等价，保留旧结果引用。
-    store.setQueryResults([{ ...baseEntry, hasPendingAction: true }]);
-    assert.equal(useTaskQueryCacheStore.getState().resultsByQueryKey[queryKey], first);
-
-    // 仅翻转 hasPendingAction：必须发布新结果，否则琥珀点停留在旧值。
-    store.setQueryResults([{ ...baseEntry, hasPendingAction: false }]);
-    const flipped = useTaskQueryCacheStore.getState().resultsByQueryKey[queryKey];
-    assert.notEqual(flipped, first);
-    assert.equal(flipped?.hasPendingAction, false);
-  } finally {
-    useTaskQueryCacheStore.getState().clearAll();
-  }
 });

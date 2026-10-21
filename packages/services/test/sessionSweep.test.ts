@@ -41,7 +41,9 @@ async function withSweepEnv(
   const root = await mkdtemp(join(tmpdir(), "zcode-session-sweep-"));
   setDataBaseDir(root);
   try {
-    const repo = new TaskIndexRepo(join(root, "tasks-index.sqlite"));
+    // 上游 v3.16.2 的构造签名是 (migrationSettings, storageHostId, startupDbPath, busyTimeout)；
+    // 临时库路径显式传给第三个参数 startupDbPath。
+    const repo = new TaskIndexRepo(undefined, undefined, join(root, "tasks-index.sqlite"));
     await repo.ensureReady();
     await run(repo, root, Date.now());
     repo.close();

@@ -1,3 +1,4 @@
+import type { ToolSearchExecutionContext } from "@zcode/contracts";
 import type {
   AgentExecutionTelemetryPort,
   AgentTelemetryActorKind,
@@ -177,6 +178,7 @@ export interface ToolExecutor {
 }
 
 export interface ToolExecuteOptions {
+  toolSearch?: ToolSearchExecutionContext;
   automationTurn?: boolean;
   /** 触发本轮的 automation id；CronDelete handler 据此放行仅限自身的自清理删除。 */
   currentTurnAutomationId?: string;

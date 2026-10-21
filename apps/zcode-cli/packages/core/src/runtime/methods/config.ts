@@ -1,3 +1,4 @@
+import { resolveToolSearchMode } from "../../tool/search/exposure.js";
 import type {
   CollaborationMode,
   ExecutionShellSelection,
@@ -140,6 +141,12 @@ export function getTools(this: AgentRuntimeInternal, model?: Model): ModelToolCo
     this.cachedTools = filterRuntimeVisibleTools.call(this, this.registry.toContracts());
   }
   return this.cachedTools
+    .filter(
+      (tool) =>
+        (tool.name !== "ToolSearch" && tool.name !== "DeferredToolCall") ||
+        !model ||
+        resolveToolSearchMode(model, this.config.toolSearch?.mode) !== "off",
+    )
     .filter((tool) => tool.name !== "WebSearch" || shouldExposeWebSearch.call(this, model))
     // Z.AI 工具额度耗尽闩锁（specs/zai-web-tool-quota-gate.md）：额度是账户级计量，
     // 观察到 1310 429 后三个计费 Web 工具一起移出 provider 可见 schema；model 缺席的

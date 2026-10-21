@@ -1,7 +1,5 @@
-import {
-  TID_AUTOMATION_CREATE_MANUALLY,
-  TID_AUTOMATION_CREATE_MENU,
-} from "@zcode/shared";
+import { TID_AUTOMATION_CREATE_MANUALLY, TID_AUTOMATION_CREATE_MENU } from "@zcode/shared/test-ids";
+// fork：系统级调度状态卡（app/system 模式、注册诊断）仍由 services 聚合导出。
 import type { AutomationSchedulingStatusView } from "@zcode/services";
 import type { ReactNode } from "react";
 import {

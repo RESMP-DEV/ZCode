@@ -214,7 +214,9 @@ const cronTimeout = {
 export const cronCreateToolEntry: ToolEntry = {
   capability: "Create a scheduled automation for the current workspace",
   metadata: {
+    shouldDefer: true,
     name: "CronCreate",
+    searchHint: "schedule a recurring or one-shot prompt",
     // 二阶调度要求应在工具 contract 中直接约束模型；自然语言不能靠关键词或正则可靠判定，
     // automation 执行轮的 mutation tool denylist 才是阻止递归修改任务定义的权限边界。
     description:
@@ -278,7 +280,9 @@ export const cronCreateToolEntry: ToolEntry = {
 export const cronListToolEntry: ToolEntry = {
   capability: "List scheduled automations for the current workspace",
   metadata: {
+    shouldDefer: true,
     name: "CronList",
+    searchHint: "list active cron jobs",
     description: "List scheduled automations in the current workspace.",
     modelInstructions: [
       "Inside a scheduled automation run, at most one entry carries isCurrentTurnAutomation: true — the automation that triggered this run. Use that id (not title matching) for end-of-life self-cleanup. If no entry is marked, no automation id matches this run (identity not resolved, or the triggering automation no longer exists): self-cleanup is not applicable this turn — do not guess an id or call CronDelete.",
@@ -325,6 +329,7 @@ export const cronListToolEntry: ToolEntry = {
 export const cronUpdateToolEntry: ToolEntry = {
   capability: "Update a scheduled automation in the current workspace",
   metadata: {
+    shouldDefer: true,
     name: "CronUpdate",
     description:
       "Update selected definition fields of an existing scheduled automation in the current workspace while preserving its id and run history.",
@@ -377,7 +382,9 @@ export const cronUpdateToolEntry: ToolEntry = {
 export const cronDeleteToolEntry: ToolEntry = {
   capability: "Delete a scheduled automation from the current workspace",
   metadata: {
+    shouldDefer: true,
     name: "CronDelete",
+    searchHint: "cancel a scheduled cron job",
     description:
       "Delete a scheduled automation from the current workspace by automation id. Inside a scheduled automation run, only the automation that triggered the current run may be deleted (self-cleanup once its work is permanently finished).",
     modelInstructions: [
