@@ -79,3 +79,25 @@ session/send admission 无关。
 - 本会话为跑测试临时建了被 `.gitignore` 覆盖的 `node_modules/`（真实目录 + 指向
   主 checkout `node_modules` 的符号链接）与 `.vite*` 缓存目录；均为忽略路径，不影响
   `git status`。
+
+## Parent integration update (2026-10-24)
+
+- Owning parent fetched the scratch branch and hash-matched all six paths before
+  fast-forwarding `consolidation/cron-self-cleanup-20261024` to
+  `1efb5a5091e2abbe62af3e0e280f08ce308c9f53`.
+- Added a spec-only update: `automationId` remains primary identity; a missing id is
+  now parsed from this turn's `automation-<id>` / `automation-<id>:<suffix>`
+  queryId/inputId, fail closed when malformed. Scenario 6 now names both invalid
+  identity sources rather than claiming queryId fallback is always absent.
+- Parent verification on Node 24.14.0 / pnpm 10.33.2:
+  `pnpm typecheck` exit 0; focused five-file cron/protocol suite exit 0 (149 passed);
+  `pnpm lint` exit 0 (99 pre-existing warnings); `pnpm test:architecture` exit 0 (36);
+  `pnpm architecture:check -- --changed` exit 0; `pnpm db:schema:check` exit 0;
+  `pnpm verify:pre-push` exit 0.
+- `pnpm fmt:check` fails on 2,156 files at this branch versus 2,157 at owned main,
+  so the branch improves the pre-existing baseline by one file; it is not a
+  branch-introduced format regression.
+- Follow-up, not hidden as done: core and bootstrap currently implement the same
+  parsing rule separately. A later cross-package change should converge both on one
+  shared owner; this PR intentionally only updates the spec and preserves green
+  contained gates.
