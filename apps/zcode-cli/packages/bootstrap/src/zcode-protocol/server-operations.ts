@@ -2515,8 +2515,10 @@ async function runPromptTurnInBackground(
         browserAmbientContext: params.browserAmbientContext,
         inputId: params.inputId,
         queryId: params.queryId,
-        ...(params.automationId
-          ? { automationId: params.automationId }
+        // 归因只认 host admission 显式传入的 automationId（与 v4 prompt-turn 一致）。
+        // inputId/queryId 可由协议调用方构造，前缀只能保守分类，不能授权自清理。
+        ...(activeAutomationId
+          ? { automationId: activeAutomationId }
           : params.offPeakTaskId
             ? {
                 offPeakTaskId: params.offPeakTaskId,
@@ -2614,13 +2616,7 @@ function resolvePromptTurnAutomationId(params: {
   automationId?: string;
   inputId?: string;
 }): string | undefined {
-  const explicit = params.automationId?.trim();
-  if (explicit) return explicit;
-  const inputId = params.inputId?.trim();
-  if (!inputId?.startsWith("automation-")) return undefined;
-  const separatorIndex = inputId.indexOf(":");
-  const automationId = separatorIndex >= 0 ? inputId.slice(0, separatorIndex) : inputId;
-  return automationId.length > "automation-".length ? automationId : undefined;
+  return params.automationId?.trim() || undefined;
 }
 
 function resolvePromptTurnOffPeakTaskId(params: {

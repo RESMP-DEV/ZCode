@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest"; // vitest 4 不再注册 node:test 套件（上游升级后集体断签），API 面相同改用 vitest 注册
 import type { AutomationPort, CronAutomation } from "@zcode/contracts";
 import type { ToolExecutionContext } from "../src/tool/types.js";
 import { cronDeleteToolEntry, cronListToolEntry } from "../src/tool/handlers/cron.js";
+import {
+  hasPositiveAutomationTurnIdentity,
+  resolveCurrentTurnAutomationId,
+} from "../src/runtime/methods/turn-loop-state.js";
+import type { RegularTurnLoopState } from "../src/runtime/methods/turn-loop-state.js";
 
 // specs/automation-turn-self-cleanup.md：CronDelete 在执行轮只放行触发本轮的 automation
 // （自清理），身份缺失 fail closed；交互轮任意 id 走原语义。CronList 仅在执行轮为匹配
@@ -158,4 +163,73 @@ test("prepareApproval proceeds for self-cleanup and denies other targets inside 
   // 交互轮保持 ask，走正常人工审批。
   assert.deepEqual(prepare({ id: "auto-self" }, {}), { gate: "ask" });
   assert.deepEqual(prepare({ wrong: "shape" }, {}), { gate: "ask" });
+});
+
+// 安全边界：queryId/inputId 是协议调用方可构造的关联 ID。automation- 前缀可以保守
+// 地把 turn 分类为 automation turn，但只有 host admission 显式传入的 automationId
+// 能成为 CronDelete 自清理身份。
+function makeLoopState(
+  overrides: Partial<Pick<RegularTurnLoopState, "automationId" | "turnTraceContext">>,
+): RegularTurnLoopState {
+  return {
+    automationId: undefined,
+    turnTraceContext: { queryId: undefined },
+    ...overrides,
+  } as unknown as RegularTurnLoopState;
+}
+
+test("resolveCurrentTurnAutomationId trusts only explicit automationId", () => {
+  const state = makeLoopState({
+    automationId: "automation-explicit",
+    turnTraceContext: { queryId: "automation-other:123" },
+  });
+  assert.equal(resolveCurrentTurnAutomationId(state), "automation-explicit");
+});
+
+test("a caller-supplied prefixed queryId never becomes self-cleanup identity", () => {
+  const state = makeLoopState({
+    turnTraceContext: { queryId: "automation-809426e9-b390-4396-b727-6b7b9392ca7b:1792333683939" },
+  });
+  assert.equal(hasPositiveAutomationTurnIdentity(state), true);
+  assert.equal(resolveCurrentTurnAutomationId(state), undefined);
+});
+
+test("resolveCurrentTurnAutomationId fails closed on bare prefix, blank, or unprefixed queryId", () => {
+  assert.equal(
+    resolveCurrentTurnAutomationId(makeLoopState({ turnTraceContext: { queryId: "automation-" } })),
+    undefined,
+  );
+  assert.equal(
+    resolveCurrentTurnAutomationId(makeLoopState({ turnTraceContext: { queryId: "  " } })),
+    undefined,
+  );
+  assert.equal(
+    resolveCurrentTurnAutomationId(makeLoopState({ turnTraceContext: { queryId: "auto-self:1" } })),
+    undefined,
+  );
+  assert.equal(resolveCurrentTurnAutomationId(makeLoopState({})), undefined);
+});
+
+test("explicit id unlocks self-cleanup even when queryId names another automation", async () => {
+  const state = makeLoopState({
+    automationId: "automation-809426e9-b390-4396-b727-6b7b9392ca7b",
+    turnTraceContext: { queryId: "automation-809426e9-b390-4396-b727-6b7b9392ca7b:1792333683939" },
+  });
+  assert.equal(hasPositiveAutomationTurnIdentity(state), true);
+  assert.equal(
+    resolveCurrentTurnAutomationId(state),
+    "automation-809426e9-b390-4396-b727-6b7b9392ca7b",
+  );
+  const port = makePort([makeAutomation("automation-809426e9-b390-4396-b727-6b7b9392ca7b")]);
+  const context = makeContext({
+    automationTurn: true,
+    currentTurnAutomationId: "automation-809426e9-b390-4396-b727-6b7b9392ca7b",
+    automationPort: port,
+  });
+  const result = (await cronDeleteToolEntry.handler(
+    { id: "automation-809426e9-b390-4396-b727-6b7b9392ca7b" },
+    context,
+  )) as { deleted: boolean };
+  assert.equal(result.deleted, true);
+  assert.deepEqual(port.deleted, ["automation-809426e9-b390-4396-b727-6b7b9392ca7b"]);
 });

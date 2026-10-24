@@ -154,6 +154,16 @@ export function hasPositiveAutomationTurnIdentity(state: RegularTurnLoopState): 
   return state.turnTraceContext.queryId?.trim().startsWith(AUTOMATION_QUERY_ID_PREFIX) ?? false;
 }
 
+/**
+ * 执行边界 currentTurnAutomationId 的事实源：只认 host admission 显式传入的
+ * automationId。queryId/inputId 可由协议调用方构造，其 automation- 前缀只能作为
+ * automationTurn 的保守分类信号，绝不能升级成 CronDelete 自清理授权；身份缺失时
+ * fail closed。
+ */
+export function resolveCurrentTurnAutomationId(state: RegularTurnLoopState): string | undefined {
+  return state.automationId?.trim() || undefined;
+}
+
 export function isAutomationMutationRestrictedTurn(state: RegularTurnLoopState): boolean {
   if (state.automationId?.trim()) return true;
   if (state.turnTraceContext.queryId?.trim().startsWith(AUTOMATION_QUERY_ID_PREFIX)) return true;

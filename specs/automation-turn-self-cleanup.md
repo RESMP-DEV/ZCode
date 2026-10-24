@@ -7,7 +7,13 @@
 ## 状态所有者
 
 - automation 定义与生命周期归 `automationService` / `automationRepo`（不变）。
-- 「本轮是哪个 automation 派发的」这一事实由 host admission 拥有（`StartPromptTurnParams.automationId` → `RegularTurnLoopState.automationId`），只认本轮显式身份，不从持久 task metadata 推断；本变更仅把该身份沿 `ExecuteToolsOptions → ToolExecuteOptions → ToolExecutionContext.currentTurnAutomationId` 投影到工具执行边界。
+- 「本轮是哪个 automation 派发的」这一事实由 host admission 拥有，并且只有显式
+  `automationId` 可以成为 `currentTurnAutomationId`。协议调用方可构造
+  `automation-<id>` / `automation-<id>:<suffix>` 前缀 queryId/inputId，因此该前缀只能
+  作为 automationTurn 的保守分类信号，不能授权 CronDelete 自清理。身份不从持久 task
+  metadata 或可变 runId 推断；随后沿
+  `ExecuteToolsOptions → ToolExecuteOptions → ToolExecutionContext.currentTurnAutomationId`
+  投影到工具执行边界。
 
 ## 边界（三层）
 
@@ -23,14 +29,14 @@
 
 ## 失败语义
 
-| 场景                                            | 行为                                                                                                             |
-| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| 执行轮删除非自身 automation                     | `prepareApproval` 直接 deny（附原因），即刻返回 `PermissionDenied`，不进入无人应答的审批等待；handler 亦复核身份 |
-| 执行轮删除自身（自清理）                        | `prepareApproval` 收窄为 proceed，无需响应者即执行；handler 复核身份                                             |
-| 执行轮身份缺失时任何 CronDelete                 | `prepareApproval` 即 deny（fail closed）；若仍执行到 handler 则 `PermissionDenied`                               |
-| 执行轮 CronList 无匹配条目（身份缺失或已删除）  | 无任何 `isCurrentTurnAutomation` 标记；模型指引要求停止自清理而非猜测 id                                         |
-| 普通交互轮恰好 deny `CronCreate` + `CronUpdate` | 不是执行轮：`automationTurn === false`，任意 id 可删，走正常审批                                                 |
-| 非执行轮（常规交互轮）                          | 行为不变：任意 id 可删，走正常审批                                                                               |
+| 场景                                                   | 行为                                                                                                             |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| 执行轮删除非自身 automation                            | `prepareApproval` 直接 deny（附原因），即刻返回 `PermissionDenied`，不进入无人应答的审批等待；handler 亦复核身份 |
+| 执行轮删除自身（自清理）                               | `prepareApproval` 收窄为 proceed，无需响应者即执行；handler 复核身份                                             |
+| 执行轮身份缺失时任何 CronDelete                        | `prepareApproval` 即 deny（fail closed）；若仍执行到 handler 则 `PermissionDenied`                               |
+| 执行轮 CronList 无匹配条目（解析后身份仍缺失或已删除） | 无任何 `isCurrentTurnAutomation` 标记；模型指引要求停止自清理而非猜测 id                                         |
+| 普通交互轮恰好 deny `CronCreate` + `CronUpdate`        | 不是执行轮：`automationTurn === false`，任意 id 可删，走正常审批                                                 |
+| 非执行轮（常规交互轮）                                 | 行为不变：任意 id 可删，走正常审批                                                                               |
 
 ## 验收场景
 
@@ -39,4 +45,4 @@
 3. automation 轮内 `CronCreate` / `CronUpdate` 仍不可见（provider 请求边界隐藏）。
 4. 常规交互轮 `CronDelete` / `CronList` 行为与字段完全不变（输出无 `isCurrentTurnAutomation`）。
 5. 常规交互轮的 denylist 恰好等于 `{CronCreate, CronUpdate}` 时，`automationTurn` 仍为 `false`：`CronDelete` 任意 id 走正常审批，`CronList` 输出无 `isCurrentTurnAutomation`。
-6. 无匹配条目的 automation 轮（queryId 兜底身份缺失，或触发 automation 已被并行删除）内：`CronList` 无任何标记条目，任何 id 的 `CronDelete` 被 deny，模型指引要求停止自清理。
+6. 无匹配条目的 automation 轮（显式 automationId 缺失/不合格，或触发 automation 已被并行删除）内：`CronList` 无任何标记条目，任何 id 的 `CronDelete` 被 deny，模型指引要求停止自清理。

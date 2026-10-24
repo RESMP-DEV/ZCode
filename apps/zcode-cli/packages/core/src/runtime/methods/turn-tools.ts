@@ -24,6 +24,7 @@ import {
   hasPositiveAutomationTurnIdentity,
   isOffPeakCreateRestrictedTurn,
   recordCompletedToolBatch,
+  resolveCurrentTurnAutomationId,
 } from "./turn-loop-state.js";
 import type { ToolCallInput } from "../../agent/message-history.js";
 import { settleToolResults, type ToolResultPart } from "./tool-result-settlement.js";
@@ -160,7 +161,7 @@ export async function executeToolCallsForModelStep(
     });
     const execution = await this.executeTools(pendingToolCalls, pendingSchedule, {
       automationTurn: hasPositiveAutomationTurnIdentity(state),
-      currentTurnAutomationId: state.automationId,
+      currentTurnAutomationId: resolveCurrentTurnAutomationId(state),
       offPeakTurn: isOffPeakCreateRestrictedTurn(state),
       signal: state.turnAbortSignal,
       traceContext: options.modelTraceContext,
