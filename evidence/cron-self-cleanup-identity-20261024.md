@@ -8,11 +8,11 @@
 
 ## 重放结果
 
-| 新 SHA | 原 SHA | 主题 |
-|---|---|---|
-| `6b325c10` | `6a965988` | fix(harness): derive currentTurnAutomationId from automation-prefixed queryId |
-| `2728896c` | `4f72394b` | fix(protocol): pass resolved automationId into legacy session/send admission |
-| `6dd86016` | —（本次新增） | test: register cron self-cleanup suite under vitest 4 |
+| 新 SHA     | 原 SHA        | 主题                                                                          |
+| ---------- | ------------- | ----------------------------------------------------------------------------- |
+| `6b325c10` | `6a965988`    | fix(harness): derive currentTurnAutomationId from automation-prefixed queryId |
+| `2728896c` | `4f72394b`    | fix(protocol): pass resolved automationId into legacy session/send admission  |
+| `6dd86016` | —（本次新增） | test: register cron self-cleanup suite under vitest 4                         |
 
 - 父链：`34c615b7` → `6b325c10` → `2728896c` → `6dd86016`；作者与提交信息沿用源提交，
   提交者时间记为本次重放时间。
@@ -43,23 +43,23 @@
 
 ## 测试取证
 
-| 命令 | 退出码 | 结果 |
-|---|---|---|
-| `node scripts/check-workspace-freshness.mjs --no-fetch` | 0 | 基线新鲜，与 resmp/main 同步 |
-| `apps/zcode-cli` `vitest run packages/core/test/cron-self-cleanup.test.ts`（重放后） | 1 | `No test suite found`：node:test 套件未注册 |
-| 同上（`6dd86016` 注册后） | 0 | 1 文件 12 用例全过 |
-| `apps/zcode-cli` `vitest run` 5 个聚焦 cron/protocol 测试文件（最终态） | 0 | 5 文件 166 用例全过 |
-| `apps/zcode-cli/packages/core` `oxlint`（3 个改动文件） | 0 | 无错误 |
-| `apps/zcode-cli/packages/bootstrap` `oxlint src/zcode-protocol/server-operations.ts` | 0 | 0 错误；2 条 unused-import 警告为基线已有（110/112 行，基线可复现） |
-| 根 `oxlint`（`pnpm run lint`） | 0 | 6718 文件，99 警告 0 错误 |
-| `node --test scripts/test/architecture-*.test.mjs scripts/test/source-size-policy.test.mjs`（`pnpm run test:architecture`） | 0 | 36 用例全过 |
-| `node scripts/architecture/architecture-check.mjs check --changed` | 0 | violations 0 / new 0 |
-| `node scripts/run-affected-unit-tests.mjs --scope worktree` | 0 | 选中 0/2063：根 vitest 配置不含 `apps/**`，结构上看不到本次改动 |
-| `node scripts/run-affected-unit-tests.mjs --scope push` | 2 | 脏工作区拒绝执行（`Push 工作区不干净`，基线语义，非测试失败） |
-| `apps/zcode-cli/packages/core` `vitest run tests`（改动后） | 1 | 12 文件失败、4 用例失败、4128 通过、21 跳过 |
-| 同上，4 个 core 改动文件临时换回基线后跑 `tests/cron-tool.test.ts` + `tests/main-tool-pool.test.ts` | 1 | 2 failed / 18 passed，与改动后同型 → **基线存量失败** |
-| `apps/zcode-cli/packages/bootstrap` `vitest run tests`（改动后） | 1 | 36 文件失败、182 用例失败、2852 通过、15 跳过 |
-| 同上，`server-operations.ts` 换回基线后重跑全量 | 1 | **同样** 36/182/2852/15 → 全部为基线存量失败 |
+| 命令                                                                                                                        | 退出码 | 结果                                                                |
+| --------------------------------------------------------------------------------------------------------------------------- | ------ | ------------------------------------------------------------------- |
+| `node scripts/check-workspace-freshness.mjs --no-fetch`                                                                     | 0      | 基线新鲜，与 resmp/main 同步                                        |
+| `apps/zcode-cli` `vitest run packages/core/test/cron-self-cleanup.test.ts`（重放后）                                        | 1      | `No test suite found`：node:test 套件未注册                         |
+| 同上（`6dd86016` 注册后）                                                                                                   | 0      | 1 文件 12 用例全过                                                  |
+| `apps/zcode-cli` `vitest run` 5 个聚焦 cron/protocol 测试文件（最终态）                                                     | 0      | 5 文件 166 用例全过                                                 |
+| `apps/zcode-cli/packages/core` `oxlint`（3 个改动文件）                                                                     | 0      | 无错误                                                              |
+| `apps/zcode-cli/packages/bootstrap` `oxlint src/zcode-protocol/server-operations.ts`                                        | 0      | 0 错误；2 条 unused-import 警告为基线已有（110/112 行，基线可复现） |
+| 根 `oxlint`（`pnpm run lint`）                                                                                              | 0      | 6718 文件，99 警告 0 错误                                           |
+| `node --test scripts/test/architecture-*.test.mjs scripts/test/source-size-policy.test.mjs`（`pnpm run test:architecture`） | 0      | 36 用例全过                                                         |
+| `node scripts/architecture/architecture-check.mjs check --changed`                                                          | 0      | violations 0 / new 0                                                |
+| `node scripts/run-affected-unit-tests.mjs --scope worktree`                                                                 | 0      | 选中 0/2063：根 vitest 配置不含 `apps/**`，结构上看不到本次改动     |
+| `node scripts/run-affected-unit-tests.mjs --scope push`                                                                     | 2      | 脏工作区拒绝执行（`Push 工作区不干净`，基线语义，非测试失败）       |
+| `apps/zcode-cli/packages/core` `vitest run tests`（改动后）                                                                 | 1      | 12 文件失败、4 用例失败、4128 通过、21 跳过                         |
+| 同上，4 个 core 改动文件临时换回基线后跑 `tests/cron-tool.test.ts` + `tests/main-tool-pool.test.ts`                         | 1      | 2 failed / 18 passed，与改动后同型 → **基线存量失败**               |
+| `apps/zcode-cli/packages/bootstrap` `vitest run tests`（改动后）                                                            | 1      | 36 文件失败、182 用例失败、2852 通过、15 跳过                       |
+| 同上，`server-operations.ts` 换回基线后重跑全量                                                                             | 1      | **同样** 36/182/2852/15 → 全部为基线存量失败                        |
 
 存量失败集中在 `fake-provider-server`、`workflow-fault-matrix.*`（需要
 `ZCODE_FAULT_MATRIX=full` 与 provider 基建）、SQLite 冷恢复/迁移，以及其余
@@ -97,7 +97,12 @@ session/send admission 无关。
 - `pnpm fmt:check` fails on 2,156 files at this branch versus 2,157 at owned main,
   so the branch improves the pre-existing baseline by one file; it is not a
   branch-introduced format regression.
-- Follow-up, not hidden as done: core and bootstrap currently implement the same
-  parsing rule separately. A later cross-package change should converge both on one
-  shared owner; this PR intentionally only updates the spec and preserves green
-  contained gates.
+- Follow-up, not hidden as done: core and bootstrap both enforce explicit-only identity.
+  A later cross-package change may consolidate the shared wording/constant owner, but no
+  caller-controlled parsing rule remains.
+- Security correction after review: caller-constructible `inputId`/`queryId` prefixes no
+  longer derive authority. Both legacy admission and core use only explicit
+  host-provided `automationId` for `currentTurnAutomationId`; a prefixed queryId may
+  conservatively classify the turn but cannot authorize CronDelete. Current automation
+  dispatch passes the explicit id, while malformed/legacy prefix-only requests fail
+  closed.

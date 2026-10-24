@@ -165,11 +165,9 @@ test("prepareApproval proceeds for self-cleanup and denies other targets inside 
   assert.deepEqual(prepare({ wrong: "shape" }, {}), { gate: "ask" });
 });
 
-// 回归（2026-10-18 实测）：legacy session/send 派发漏传显式 automationId，只有
-// automation- 前缀 queryId（run_id 形如 automation-<id>:<ts>）。执行边界若只把
-// 前缀当 automationTurn 布尔而不解析出 id，本轮会 automationTurn=true 却
-// currentTurnAutomationId 缺失，CronDelete 自清理被永久拒绝（PR loop 自动化
-// 因而在 PR 合并后 36 轮 no-op 空转，自删除两度被拒）。
+// 安全边界：queryId/inputId 是协议调用方可构造的关联 ID。automation- 前缀可以保守
+// 地把 turn 分类为 automation turn，但只有 host admission 显式传入的 automationId
+// 能成为 CronDelete 自清理身份。
 function makeLoopState(
   overrides: Partial<Pick<RegularTurnLoopState, "automationId" | "turnTraceContext">>,
 ): RegularTurnLoopState {
@@ -180,7 +178,7 @@ function makeLoopState(
   } as unknown as RegularTurnLoopState;
 }
 
-test("resolveCurrentTurnAutomationId prefers explicit automationId over the prefixed queryId", () => {
+test("resolveCurrentTurnAutomationId trusts only explicit automationId", () => {
   const state = makeLoopState({
     automationId: "automation-explicit",
     turnTraceContext: { queryId: "automation-other:123" },
@@ -188,20 +186,12 @@ test("resolveCurrentTurnAutomationId prefers explicit automationId over the pref
   assert.equal(resolveCurrentTurnAutomationId(state), "automation-explicit");
 });
 
-test("resolveCurrentTurnAutomationId derives the id from a run_id-shaped queryId", () => {
-  // 真实 run_id：automationId 自身已含 automation- 前缀，首个 ":" 前为完整 id。
+test("a caller-supplied prefixed queryId never becomes self-cleanup identity", () => {
   const state = makeLoopState({
     turnTraceContext: { queryId: "automation-809426e9-b390-4396-b727-6b7b9392ca7b:1792333683939" },
   });
-  assert.equal(
-    resolveCurrentTurnAutomationId(state),
-    "automation-809426e9-b390-4396-b727-6b7b9392ca7b",
-  );
-});
-
-test("resolveCurrentTurnAutomationId accepts a prefixed queryId without a run suffix", () => {
-  const state = makeLoopState({ turnTraceContext: { queryId: " automation-auto-self " } });
-  assert.equal(resolveCurrentTurnAutomationId(state), "automation-auto-self");
+  assert.equal(hasPositiveAutomationTurnIdentity(state), true);
+  assert.equal(resolveCurrentTurnAutomationId(state), undefined);
 });
 
 test("resolveCurrentTurnAutomationId fails closed on bare prefix, blank, or unprefixed queryId", () => {
@@ -220,8 +210,9 @@ test("resolveCurrentTurnAutomationId fails closed on bare prefix, blank, or unpr
   assert.equal(resolveCurrentTurnAutomationId(makeLoopState({})), undefined);
 });
 
-test("derived id unlocks self-cleanup when the prefixed queryId is the only identity", async () => {
+test("explicit id unlocks self-cleanup even when queryId names another automation", async () => {
   const state = makeLoopState({
+    automationId: "automation-809426e9-b390-4396-b727-6b7b9392ca7b",
     turnTraceContext: { queryId: "automation-809426e9-b390-4396-b727-6b7b9392ca7b:1792333683939" },
   });
   assert.equal(hasPositiveAutomationTurnIdentity(state), true);

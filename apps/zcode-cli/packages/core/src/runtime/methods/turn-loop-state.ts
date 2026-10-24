@@ -155,20 +155,13 @@ export function hasPositiveAutomationTurnIdentity(state: RegularTurnLoopState): 
 }
 
 /**
- * 执行边界 currentTurnAutomationId 的事实源：显式 automationId 优先，否则从
- * automation- 前缀 queryId 解析（规则与 bootstrap 的 resolvePromptTurnAutomationId
- * 一致：首个 ":" 前的整段就是 automationId，id 自身可再含 "automation-" 前缀）。
- * 只把前缀当 automationTurn 布尔而不解析成 id 时，漏传 automationId 的派发轮
- * 会 fail closed 地拒绝 CronDelete 自清理——身份信息其实就在 queryId 里。
+ * 执行边界 currentTurnAutomationId 的事实源：只认 host admission 显式传入的
+ * automationId。queryId/inputId 可由协议调用方构造，其 automation- 前缀只能作为
+ * automationTurn 的保守分类信号，绝不能升级成 CronDelete 自清理授权；身份缺失时
+ * fail closed。
  */
 export function resolveCurrentTurnAutomationId(state: RegularTurnLoopState): string | undefined {
-  const explicit = state.automationId?.trim();
-  if (explicit) return explicit;
-  const queryId = state.turnTraceContext.queryId?.trim();
-  if (!queryId?.startsWith(AUTOMATION_QUERY_ID_PREFIX)) return undefined;
-  const separatorIndex = queryId.indexOf(":");
-  const automationId = separatorIndex >= 0 ? queryId.slice(0, separatorIndex) : queryId;
-  return automationId.length > AUTOMATION_QUERY_ID_PREFIX.length ? automationId : undefined;
+  return state.automationId?.trim() || undefined;
 }
 
 export function isAutomationMutationRestrictedTurn(state: RegularTurnLoopState): boolean {
