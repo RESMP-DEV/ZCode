@@ -37,7 +37,7 @@ export async function executeToolBatch(
   for (let i = 0; i < toolCalls.length; i += maxConcurrency) {
     const batch = toolCalls.slice(i, i + maxConcurrency);
     // 与上方并发充足路径一致直接透传 options：逐字段手抄会在新增选项（如 offPeakTurn）时
-    // 静默丢失，分批执行的批间行为随之与快路径分叉。
+      // 静默丢失，分批执行的批间行为随之与快路径分叉。
     const batchResults = await Promise.all(batch.map((tc) => executeOne(tc, options)));
     results.push(...batchResults);
   }

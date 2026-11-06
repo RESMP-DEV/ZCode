@@ -150,6 +150,8 @@ export function createStreamingToolCoordinator(
         });
         return undefined;
       });
+      // abandon 有界返回仍可能留下工具 part 写入；session 关闭必须等真实执行落地。
+      void runtime.trackResidencyBlockingWork(promise).catch(() => undefined);
       handles.set(normalizedToolCall.id, promise);
     },
 
@@ -322,6 +324,7 @@ async function executeDuringStream(
     toolSearch: options.toolSearch,
     automationTurn: hasPositiveAutomationTurnIdentity(state),
     currentTurnAutomationId: resolveCurrentTurnAutomationId(state),
+    automationId: state.automationId,
     offPeakTurn: isOffPeakCreateRestrictedTurn(state),
     signal: options.abortSignal,
     traceContext: options.traceContext,

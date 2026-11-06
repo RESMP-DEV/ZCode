@@ -82,6 +82,8 @@ export interface ToolExecutorOptions {
   permissionService: PermissionService;
   permissionBroker?: PermissionBrokerPort;
   emitEvent: (event: SessionEvent) => Promise<void>;
+  /** 后台跟踪的真实完成链（含终态写入）属于 runtime，不能随工具返回丢失。 */
+  registerResidencyBlockingWork?: (work: Promise<void>) => void;
   enqueueBackgroundTaskNotification?: EnqueueBackgroundTaskNotification;
   shouldEnqueueBackgroundTaskNotification?: ShouldEnqueueBackgroundTaskNotification;
   sessionId: SessionId;
@@ -152,6 +154,15 @@ export interface ToolExecutor {
     options?: ToolExecuteOptions,
   ): Promise<unknown>;
 
+  /**
+   * 不跑 hook、不弹确认、不发事件：按当前模式与权限规则逐个判定 Read 是否被拒绝（Read 未注册时全部算拒绝）。
+   * 和 Read 工具调用共用同一套静态判定，规则只加载一次；compaction 补回文件用它跳过读权限 deny 的文件。
+   */
+  areReadsDeniedWithoutPrompt(
+    filePaths: readonly string[],
+    traceContext: TraceContext,
+  ): Promise<boolean[]>;
+
   execute(toolCall: ExecutableToolCall, options?: ToolExecuteOptions): Promise<ToolExecutionResult>;
   executeBatch(
     toolCalls: ExecutableToolCall[],
@@ -182,6 +193,8 @@ export interface ToolExecuteOptions {
   automationTurn?: boolean;
   /** 触发本轮的 automation id；CronDelete handler 据此放行仅限自身的自清理删除。 */
   currentTurnAutomationId?: string;
+  /** Host 准入注入的本轮 automationId；CronPauseSelf 唯一的暂停目标。 */
+  automationId?: string;
   offPeakTurn?: boolean;
   signal?: AbortSignal;
   traceContext?: TraceContext;
@@ -200,6 +213,8 @@ export interface ToolExecutorDeps {
   permissionService: PermissionService;
   permissionBroker: PermissionBrokerPort;
   emitEvent: (event: SessionEvent) => Promise<void>;
+  /** 后台跟踪的真实完成链（含终态写入）属于 runtime，不能随工具返回丢失。 */
+  registerResidencyBlockingWork?: (work: Promise<void>) => void;
   enqueueBackgroundTaskNotification?: EnqueueBackgroundTaskNotification;
   shouldEnqueueBackgroundTaskNotification?: ShouldEnqueueBackgroundTaskNotification;
   sessionId: SessionId;
@@ -239,6 +254,8 @@ export interface ToolExecutorDeps {
   modelCatalogPort?: ModelCatalogPort;
   runtimeTaskRegistry?: RuntimeTaskRegistry;
   readFileState: ReadFileStateMap;
+  /** 文件读取快照的下一个序号；执行器持有计数器，只增不减。 */
+  nextReadFileStateSnapshotIndex: () => number;
   hasLoadedSkill?: (skillName: string) => boolean;
   subagentBackgroundBashMaxMs?: number;
   bashShellSelection?: ExecutionShellSelection;
