@@ -68,6 +68,15 @@
 - Response ID: `msg_20261106091400dca8ad106775444a`
 - Duration: 8,784 ms; finish reason `stop`; response text `OK`; no tool calls.
 
+## Owned remote push
+
+- Command: `mise exec -- arbiter git push resmp main`
+- Actual `.husky/pre-push` / `pnpm verify:pre-push` contract exited 0 under Node 24.14.0.
+- Owned remote advanced: `96df96b52ea8967d4f26f5a139df73d50c1bdc00 -> 1ebc5426` on `RESMP-DEV/ZCode:main`.
+- Push-time findings:
+  - the private remote E2E queue was again absent and explicitly skipped;
+  - GitHub reported 588 existing Dependabot alerts on the default branch (15 critical, 223 high, 287 moderate, 63 low). This is a dependency-security finding inherited with the upstream-heavy merge, not a verification pass or remediation claim.
+
 ## Non-claims
 
 - Desktop E2E was not run; the private remote E2E queue was absent and its check explicitly skipped.
