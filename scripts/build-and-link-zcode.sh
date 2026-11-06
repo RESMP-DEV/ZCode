@@ -104,17 +104,21 @@ repo_root="$(cd -- "${script_dir}/.." && pwd)"
 packages_root="${lib_root}/packages"
 dist_mac_dir="${repo_root}/packages/desktop/dist/mac-arm64"
 
-# mise.toml 锁 node 24.x；本机无 mise 时优先用 nvm 的 24 系列驱动构建子进程。
+# mise.toml 锁 node 24.x。调用方已提供 24.x 时不得被旧 NVM 目录覆盖；
+# 只有当前 runtime 不是 24.x 时才回退 NVM。
 node_bin_dir=""
-for candidate in "${HOME}/.nvm/versions/node/v24.14.0/bin" "${HOME}/.nvm/versions/node/v24.11.1/bin"; do
-  if [[ -x "${candidate}/node" ]]; then node_bin_dir="${candidate}"; break; fi
-done
-if [[ -n "${node_bin_dir}" ]]; then
-  export PATH="${node_bin_dir}:${PATH}"
-fi
 node_major="$(node -v 2>/dev/null | sed -E 's/v([0-9]+).*/\1/' || echo 0)"
-if (( node_major < 24 )); then
-  echo "error: node >=24 required (mise.toml pins 24.x), found $(node -v 2>/dev/null || echo none)" >&2
+if (( node_major != 24 )); then
+  for candidate in "${HOME}/.nvm/versions/node/v24.14.0/bin" "${HOME}/.nvm/versions/node/v24.11.1/bin"; do
+    if [[ -x "${candidate}/node" ]]; then node_bin_dir="${candidate}"; break; fi
+  done
+  if [[ -n "${node_bin_dir}" ]]; then
+    export PATH="${node_bin_dir}:${PATH}"
+  fi
+  node_major="$(node -v 2>/dev/null | sed -E 's/v([0-9]+).*/\1/' || echo 0)"
+fi
+if (( node_major != 24 )); then
+  echo "error: node 24.x required (mise.toml pins 24.x), found $(node -v 2>/dev/null || echo none)" >&2
   exit 1
 fi
 
