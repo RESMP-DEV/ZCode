@@ -221,7 +221,6 @@ function workspaceGroupColor(targetWorkspaceKey: string): ZCodeTaskGroupColor {
   return WORKSPACE_BOOTSTRAP_TASK_GROUP_COLORS[colorIndex] ?? DEFAULT_TASK_GROUP_COLOR;
 }
 
-
 function resolveTaskIndexRowWorkspaceIdentity(row: TaskIndexRow): string | undefined {
   const columnIdentity = row.workspace_identity?.trim();
   if (columnIdentity === row.workspace_key) {
@@ -1694,47 +1693,47 @@ export class TaskIndexRepo {
           cli_updated_at = MAX(COALESCE(tasks.cli_updated_at, excluded.cli_updated_at), excluded.cli_updated_at),
           cli_last_outcome = COALESCE(excluded.cli_last_outcome, tasks.cli_last_outcome),
           cli_deleted = MAX(COALESCE(tasks.cli_deleted, 0), excluded.cli_deleted)`,
-      )
-      .run({
-        workspace_key: workspaceKey(record.meta),
-        workspace_path: record.meta.workspacePath,
-        workspace_identity: record.meta.workspaceIdentity ?? null,
-        task_id: record.meta.taskId,
-        title: record.meta.title,
-        task_status: record.meta.status ?? null,
-        provider: record.meta.provider ?? null,
-        mode: record.meta.mode,
-        model: record.meta.model ?? null,
-        migration_source: record.meta.migrationSource ?? null,
-        forked_from_task_id: record.meta.forkedFromTaskId ?? null,
-        // cron automation 身份从 meta 投影到索引列（meta_json 里也保留一份，见 serializeMetaJson）。
-        cron_automation_id: record.meta.cronAutomationId ?? null,
-        // off-peak 身份（D48）同款投影。
-        off_peak_task_id: record.meta.offPeakTaskId ?? null,
-        created_at: record.meta.createdAt,
-        updated_at: record.meta.updatedAt,
-        unread_at: record.meta.unreadAt ?? null,
-        last_unread_at: record.meta.unreadAt ?? 0,
-        pinned: record.pinned ? 1 : 0,
-        archived: record.archived ? 1 : 0,
-        deleted: record.deleted ? 1 : 0,
-        title_overridden: record.titleOverridden ? 1 : 0,
-        searchable_text: searchableText,
-        meta_json: serializeMetaJson(record.meta),
-        // fork：CLI-facts 基线（见上方 ON CONFLICT 注释）。titleOverridden 行保持
-        // cli_title_source 为 NULL，让 writeRecord 末尾的 handoff bit-2 标记照常置位，
-        // applyCliFacts 的 CASE 才会保留用户手动标题。
-        cli_title: record.meta.title,
-        cli_title_source: record.titleOverridden ? null : "default",
-        cli_created_at: record.meta.createdAt,
-        cli_updated_at: record.meta.updatedAt,
-        // cli_last_outcome 只承接终态（completed/error）；running 属会话活动态，
-        // 读侧由 rowToMeta 从 meta_json 兜底，CLI 事实落地后照常覆盖。
-        cli_last_outcome:
-          record.meta.status === "completed" || record.meta.status === "error"
-            ? record.meta.status
-            : null,
-        cli_deleted: record.deleted ? 1 : 0,
+        )
+        .run({
+          workspace_key: workspaceKey(record.meta),
+          workspace_path: record.meta.workspacePath,
+          workspace_identity: record.meta.workspaceIdentity ?? null,
+          task_id: record.meta.taskId,
+          title: record.meta.title,
+          task_status: record.meta.status ?? null,
+          provider: record.meta.provider ?? null,
+          mode: record.meta.mode,
+          model: record.meta.model ?? null,
+          migration_source: record.meta.migrationSource ?? null,
+          forked_from_task_id: record.meta.forkedFromTaskId ?? null,
+          // cron automation 身份从 meta 投影到索引列（meta_json 里也保留一份，见 serializeMetaJson）。
+          cron_automation_id: record.meta.cronAutomationId ?? null,
+          // off-peak 身份（D48）同款投影。
+          off_peak_task_id: record.meta.offPeakTaskId ?? null,
+          created_at: record.meta.createdAt,
+          updated_at: record.meta.updatedAt,
+          unread_at: record.meta.unreadAt ?? null,
+          last_unread_at: record.meta.unreadAt ?? 0,
+          pinned: record.pinned ? 1 : 0,
+          archived: record.archived ? 1 : 0,
+          deleted: record.deleted ? 1 : 0,
+          title_overridden: record.titleOverridden ? 1 : 0,
+          searchable_text: searchableText,
+          meta_json: serializeMetaJson(record.meta),
+          // fork：CLI-facts 基线（见上方 ON CONFLICT 注释）。titleOverridden 行保持
+          // cli_title_source 为 NULL，让 writeRecord 末尾的 handoff bit-2 标记照常置位，
+          // applyCliFacts 的 CASE 才会保留用户手动标题。
+          cli_title: record.meta.title,
+          cli_title_source: record.titleOverridden ? null : "default",
+          cli_created_at: record.meta.createdAt,
+          cli_updated_at: record.meta.updatedAt,
+          // cli_last_outcome 只承接终态（completed/error）；running 属会话活动态，
+          // 读侧由 rowToMeta 从 meta_json 兜底，CLI 事实落地后照常覆盖。
+          cli_last_outcome:
+            record.meta.status === "completed" || record.meta.status === "error"
+              ? record.meta.status
+              : null,
+          cli_deleted: record.deleted ? 1 : 0,
         });
       projectStorage.admitTaskIdentity(database, record.meta, this.storageHostId);
       if (record.titleOverridden)
@@ -2338,13 +2337,13 @@ export class TaskIndexRepo {
         // 重新归档重新起算。auto-archive（archiveStaleTasks）不打点，存量行为经
         // COALESCE(archived_at, updated_at) 保持不变。
         if (params.patch.archived === true && row.archived !== 1) {
-          db
-            .prepare("UPDATE tasks SET archived_at = ? WHERE workspace_key = ? AND task_id = ?")
-            .run(Date.now(), row.workspace_key, row.task_id);
+          db.prepare(
+            "UPDATE tasks SET archived_at = ? WHERE workspace_key = ? AND task_id = ?",
+          ).run(Date.now(), row.workspace_key, row.task_id);
         } else if (params.patch.archived === false && row.archived === 1) {
-          db
-            .prepare("UPDATE tasks SET archived_at = NULL WHERE workspace_key = ? AND task_id = ?")
-            .run(row.workspace_key, row.task_id);
+          db.prepare(
+            "UPDATE tasks SET archived_at = NULL WHERE workspace_key = ? AND task_id = ?",
+          ).run(row.workspace_key, row.task_id);
         }
         const result = rowToMeta(this.getTaskRow(params)!);
         // 归档是一次性暂停事件；重复请求不能覆盖用户在归档后手动开启的选择。

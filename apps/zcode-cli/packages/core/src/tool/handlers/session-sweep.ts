@@ -117,6 +117,8 @@ const sessionSweepPlanPermission: ToolPermissionSpec = {
 export const sessionSweepPlanToolEntry: ToolEntry = {
   capability: "List sessions eligible for cleanup across all workspaces",
   metadata: {
+    // 上游 v3.18 tool-search：非 resident 内建一律 shouldDefer，进 deferred 目录按需唤起。
+    shouldDefer: true,
     name: "SessionSweepPlan",
     description:
       "List finished sessions across all workspaces that are eligible for cleanup: terminal status, not pinned, no unread state, no pending interaction, no off-peak ownership, no live cron ownership, and past the age gate (3 days by default; manually archived finished sessions use 1 day from archivedAt). Read-only. Returns each candidate with title, status, dates, workspace, and a short content preview, plus the backlog directory where deleted sessions are backed up.",
@@ -159,6 +161,8 @@ export const sessionSweepPlanToolEntry: ToolEntry = {
 export const sessionSweepExecuteToolEntry: ToolEntry = {
   capability: "Delete selected sessions with automatic backup",
   metadata: {
+    // 上游 v3.18 tool-search：非 resident 内建一律 shouldDefer，进 deferred 目录按需唤起。
+    shouldDefer: true,
     name: "SessionSweepExecute",
     description:
       "Delete the selected sessions (by taskId, from a SessionSweepPlan result). Every deletion is backed up first: the session snapshot is moved into the sweep backlog directory and the index row is tombstoned, so deletions are recoverable by hand. The host re-validates all guards in a transaction; ineligible ids come back in `skipped` and are never deleted.",
@@ -214,6 +218,8 @@ export const sessionSweepExecuteToolEntry: ToolEntry = {
 export const sessionSweepSetPinnedToolEntry: ToolEntry = {
   capability: "Pin sessions worth keeping or unpin stale pins",
   metadata: {
+    // 上游 v3.18 tool-search：非 resident 内建一律 shouldDefer，进 deferred 目录按需唤起。
+    shouldDefer: true,
     name: "SessionSweepSetPinned",
     description:
       "Pin or unpin sessions by taskId (from a SessionSweepPlan result). Pinning marks a session worth keeping — it moves to the pinned group and is permanently excluded from cleanup candidates. Unpinning a stale pin does not delete anything: it only lets future sweep plans nominate that session for deletion again. Both are reversible membership changes.",

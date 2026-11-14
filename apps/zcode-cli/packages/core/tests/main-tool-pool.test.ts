@@ -309,7 +309,10 @@ describe("main agent tool pool", () => {
     });
 
     const automationTurnTools = requests[0].tools.map((tool: any) => tool.name);
-    expect(automationTurnTools).toEqual(["CronList"]);
+    // fork 语义（specs/automation-turn-self-cleanup.md）：automation 轮只隐藏
+    // CronCreate/CronUpdate，CronDelete 保持可见供 scoped 自清理；handler 层
+    // 仍按 currentTurnAutomationId 范围校验 fail-closed（见 cron-self-cleanup.test.ts）。
+    expect(automationTurnTools).toEqual(["CronDelete", "CronList"]);
   });
 
   it("keeps provider-visible order for allowlisted main tool requests", async () => {

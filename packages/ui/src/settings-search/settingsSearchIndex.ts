@@ -127,6 +127,18 @@ export const SETTINGS_SEARCH_ITEMS = [
     visibility: "all",
   },
   {
+    id: "settings.workspaceAutoImport",
+    section: "general",
+    description: "settings.workspaceAutoImportDescription",
+    visibility: "all",
+  },
+  {
+    id: "settings.workspaceAutoImportRoots",
+    section: "general",
+    description: "settings.workspaceAutoImportRootsDescription",
+    visibility: "all",
+  },
+  {
     id: "settings.onboarding",
     section: "general",
     description: "settings.onboardingDescription",

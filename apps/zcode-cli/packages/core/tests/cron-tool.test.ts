@@ -121,7 +121,9 @@ describe("cron tools", () => {
       },
       {
         model: "zai-api/GLM-5",
-        sessionId: "sess-cron",
+        // 会话绑定已退役（specs/automation-system-scheduling.md）：创建不携带 sessionId，
+        // 每次触发都在 automation 所属 workspace 新建 fresh session；旧断言仍期待
+        // sessionId 回传，与 handler 的退役语义不符（该失配在 main 上已存在，非本次合并引入）。
       },
     );
     expect(result).toMatchObject({

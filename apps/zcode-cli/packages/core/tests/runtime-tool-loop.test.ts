@@ -7273,7 +7273,9 @@ describe("AgentRuntime tool loop", () => {
       create: vi.fn(),
       list: vi.fn(async () => []),
       update: vi.fn(),
-      delete: vi.fn(),
+      // fork scoped 自清理路径会真实执行本次删除：port.delete 只回 boolean（handler 会把它
+      // 组装成 CronDeleteOutput），否则允许路径被输出校验误报为执行失败。
+      delete: vi.fn(async () => true),
       pause: vi.fn(),
     };
     let modelCallCount = 0;
@@ -7345,11 +7347,16 @@ describe("AgentRuntime tool loop", () => {
 
     expect(automationPort.create).not.toHaveBeenCalled();
     expect(automationPort.update).not.toHaveBeenCalled();
-    expect(automationPort.delete).not.toHaveBeenCalled();
+    // fork 语义（specs/automation-turn-self-cleanup.md）：CronDelete 在执行轮放行
+    // 「只删除触发本轮的 automation」这一 scoped 自清理形态——本轮 host admission
+    // 传入 automationId=automation-1，且 rogue call 恰好只删 automation-1，与
+    // cron-self-cleanup.test.ts 锁定的范围校验一致；被拒的是 create/update 两个
+    // 无范围豁免的 mutation。
+    expect(automationPort.delete).toHaveBeenCalledWith({ id: "automation-1" });
     const errors = (await eventStore.getEvents(sessionId)).filter(
       (event) => event.type === SessionEventType.ToolCallError,
     );
-    expect(errors).toHaveLength(3);
+    expect(errors).toHaveLength(2);
     expect(errors.map((event) => event.payload)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
