@@ -80,3 +80,5 @@ __pycache__/
 # 上游 v3.16.2 起 verify:pre-push 的 affected 阶段要求工作区干净，未忽略的未跟踪文件会挡住 push。
 .zcode/
 /build/
+# CR-01：afterPack 生成的 NSIS helper define，按架构命名，不得入库
+packages/desktop/build/generated/

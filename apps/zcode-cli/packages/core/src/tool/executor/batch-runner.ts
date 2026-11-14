@@ -36,8 +36,8 @@ export async function executeToolBatch(
   const results: ToolExecutionResult[] = [];
   for (let i = 0; i < toolCalls.length; i += maxConcurrency) {
     const batch = toolCalls.slice(i, i + maxConcurrency);
-    // 与上方并发充足路径一致直接透传 options：逐字段手抄会在新增选项（如 offPeakTurn）时
-      // 静默丢失，分批执行的批间行为随之与快路径分叉。
+    // 与上方并发充足路径一致直接透传 options：逐字段手抄会在新增选项（如 offPeakTurn、
+      // 上游 v3.18 的 pluginDiscoveryUi）时静默丢失，分批执行的批间行为随之与快路径分叉。
     const batchResults = await Promise.all(batch.map((tc) => executeOne(tc, options)));
     results.push(...batchResults);
   }
@@ -68,8 +68,8 @@ export async function* executeToolSchedule(
 
     yield { type: "batch_start", parallelGroupIndex: groupIndex, toolCallIds: group };
 
-    // 逐字段手抄曾在这里丢掉 offPeakTurn，调度组内的闲时轮身份判定随之失效；
-    // 透传全部 options 仅覆盖 maxConcurrency 为本组的并发上限。
+    // 逐字段手抄曾在这里丢掉 offPeakTurn（上游 v3.18 又新增了 pluginDiscoveryUi，同样被
+    // 透传覆盖），调度组内的闲时轮身份判定随之失效；透传全部 options 仅覆盖 maxConcurrency。
     const groupResults = await executeBatch(groupTools, { ...options, maxConcurrency });
     allResults.push(...groupResults);
 

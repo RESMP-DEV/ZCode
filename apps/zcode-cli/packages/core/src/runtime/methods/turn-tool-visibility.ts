@@ -1,3 +1,4 @@
+import { SEARCH_PLUGINS_TOOL_NAME, SUGGEST_PLUGIN_INSTALL_TOOL_NAME } from "@zcode/contracts";
 import type { AgentRuntimeInternal } from "../internal.js";
 import { AUTOMATION_DEFINITION_TOOL_NAMES } from "@zcode/shared";
 import {
@@ -17,6 +18,11 @@ export function getTurnTools(runtime: AgentRuntimeInternal, state: RegularTurnLo
 
 function buildTurnDisallowedTools(state: RegularTurnLoopState): Set<string> | null {
   const tools = new Set(state.toolDisallowlist ?? []);
+  // 同一 runtime 上可交替收到新端与旧端输入；端口存在只表示可执行，不代表本轮可以曝光卡片。
+  if (!state.pluginDiscoveryUi) {
+    tools.add(SEARCH_PLUGINS_TOOL_NAME);
+    tools.add(SUGGEST_PLUGIN_INSTALL_TOOL_NAME);
+  }
   if (isAutomationMutationRestrictedTurn(state)) {
     // 定时任务执行轮只应运行任务 prompt，不能反过来管理自己的定义。
     // CronDelete 保留可见：自清理范围校验由 handler 执行边界负责。

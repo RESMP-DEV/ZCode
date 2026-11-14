@@ -13,6 +13,8 @@ const readyMarkerNames = {
   // automation-runner（detached cron bundle，specs/automation-system-scheduling.md）同规则登记；
   // 漏登会让 desktop production build 在新 entry 落盘后仍以 unknown target 中止（与 scheduler 同款坑）。
   "automation-runner": ".automation-runner-build-ready",
+  // 扩展进程（docs/plugins/extension-host.md §12.1）：独立 tsup target，dev.mjs 等待它就绪。
+  "extension-host": ".extension-host-build-ready",
 };
 
 if (!Object.hasOwn(readyMarkerNames, target)) {
