@@ -786,7 +786,7 @@ modules:
     publicEntrypoints:
       - apps/zcode-cli/packages/core/src/tool/handlers/bash-cmd-readonly-policy.ts
       - apps/zcode-cli/packages/core/src/tool/cmd-readonly/contract.ts
-    layers: {app: .}
+    layers: { app: . }
     owner: agent
 
   # MCP 的连接基础设施、配置桥接与会话消费；工具实现归工具自身，不混入等待模块。
@@ -831,7 +831,7 @@ modules:
       - apps/zcode-cli/packages/adapters/src/watch/watched-source.ts
       - apps/zcode-cli/packages/adapters/src/watch/contract.ts
       - apps/zcode-cli/packages/adapters/src/plugins/live-inventory.ts
-    layers: {contract: contract.ts, adapters: .}
+    layers: { contract: contract.ts, adapters: . }
     owner: agent
 
   # Skill 实时目录：进程级目录快照、读快照的 SkillPort 与只追加增量的列表公告。
@@ -850,17 +850,21 @@ modules:
       - apps/zcode-cli/packages/core/src/skills/contract.ts
       - apps/zcode-cli/packages/adapters/src/skills/catalog.ts
       - apps/zcode-cli/packages/bootstrap/src/app/dynamic-skill-catalog.ts
-    layers: {contract: contract.ts, app: .}
+    layers: { contract: contract.ts, app: . }
     owner: agent
 
   - id: plugin-discovery
-    roots: [apps/zcode-cli/packages/adapters/src/plugins/discovery, apps/zcode-cli/packages/adapters/tests/plugin-discovery]
+    roots:
+      [
+        apps/zcode-cli/packages/adapters/src/plugins/discovery,
+        apps/zcode-cli/packages/adapters/tests/plugin-discovery,
+      ]
     managed: true
     requires: [zcode-cli, shared]
     publicEntrypoints:
       - apps/zcode-cli/packages/adapters/src/plugins/discovery/index.ts
       - apps/zcode-cli/packages/adapters/src/plugins/discovery/contract.ts
-    layers: {contract: contract.ts, adapters: .}
+    layers: { contract: contract.ts, adapters: . }
     owner: plugin
 
   - id: tool-result-settlement
