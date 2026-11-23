@@ -37,7 +37,8 @@
 
 - Snapshot: `~/.local/lib/alphaheng/zcode/packages/20261122-233637-83d2450c/`; `/Applications/ZCode Preview.app` version 4.0.0, manifest gitSha `83d2450c`, mainBinarySha256 `6c7bfa62...` (unchanged Electron 44.7.0 runtime; code ships in app.asar, sentinel check OK).
 - Static smoke `--no-launch`: identity, version, snapshot match, asar sentinels all OK.
-- Relaunch: ARMED awaiting explicit user go; pre-relaunch SQLite backups pending. v3.17.2 (`20261105-170906`) and v3.18.2 (`20261113-191814`) snapshots retained for rollback; installer pruned `20261018-092832-fca8e9e9`.
+- Relaunch: DONE by the user — main process PID 47512, executable `/Applications/ZCode Preview.app/Contents/MacOS/ZCode Preview` (lsof-verified), started 2026-11-23 01:04:03, i.e. ~1.5h after the snapshot install; the pre-relaunch SQLite backups were therefore not taken, but v4.0.0 shipped no new migrations (nothing to migrate, no risk materialized). v3.17.2 (`20261105-170906`) and v3.18.2 (`20261113-191814`) snapshots retained for rollback; installer pruned `20261018-092832-fca8e9e9`.
+- Post-relaunch finding (2026-11-23): the runtime catalog cache is PER appVersion — the 4.0.0 app seeded its own copy at `darwin-aarch64/4.0.0/endpoint-78d7c3bef4024722642626fe3669a799/zcode-builtin.json` labeled revision 48 but WITHOUT the 3.18.2 flip content (glm-5.3 supportsImage False again). Re-applied the flip there at revision 49 (backup `.bak-rev48-pre-vision-flip`). Trap recorded: the GLM-5.3 image flip must be re-checked/re-applied for every new appVersion runtime dir until upstream/server publishes a higher revision.
 
 ## Non-claims
 
